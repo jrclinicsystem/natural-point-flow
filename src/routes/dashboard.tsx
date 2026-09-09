@@ -129,7 +129,7 @@ function DashboardPage() {
   ].sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 8);
 
   return (
-    <AppLayout title="Dashboard" subtitle={isManager ? "Visão geral financeira e operacional" : "Visão operacional do caixa"}>
+    <AppLayout title="Dashboard" hideHeading>
       {isLoading ? (
         <div className="np-card flex min-h-56 items-center justify-center text-sm text-muted-foreground">Carregando dados reais…</div>
       ) : (
