@@ -56,12 +56,14 @@ export function AppLayout({
   subtitle,
   actions,
   managerOnly = false,
+  hideHeading = false,
   children,
 }: {
   title: string;
   subtitle?: string;
   actions?: ReactNode;
   managerOnly?: boolean;
+  hideHeading?: boolean;
   children: ReactNode;
 }) {
   const { loading, session, isManager, role, displayName, signOut } = useAuth();
@@ -209,19 +211,22 @@ export function AppLayout({
 
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 border-b border-border/70 bg-background/88 backdrop-blur-xl">
-          <div className="flex min-h-[78px] items-center gap-3 px-4 lg:px-8 xl:px-10">
+          <div className={cn("flex items-center gap-3 px-4 lg:px-8 xl:px-10", hideHeading ? "min-h-[60px]" : "min-h-[78px]")}>
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen((v) => !v)}>
               <Menu className="h-5 w-5" />
             </Button>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.16em] text-muted-foreground">
-                <span>Natural Point</span>
-                <span className="text-gold">•</span>
-                <span>Sistema de gestão</span>
+            {!hideHeading && (
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.16em] text-muted-foreground">
+                  <span>Natural Point</span>
+                  <span className="text-gold">•</span>
+                  <span>Sistema de gestão</span>
+                </div>
+                <h1 className="mt-1 truncate font-display text-[22px] leading-none text-foreground lg:text-[26px]">{title}</h1>
+                {subtitle && <p className="mt-1.5 truncate text-xs text-muted-foreground">{subtitle}</p>}
               </div>
-              <h1 className="mt-1 truncate font-display text-[22px] leading-none text-foreground lg:text-[26px]">{title}</h1>
-              {subtitle && <p className="mt-1.5 truncate text-xs text-muted-foreground">{subtitle}</p>}
-            </div>
+            )}
+            {hideHeading && <div className="flex-1" />}
             <div className="flex items-center gap-2">
               {actions}
               <Button
