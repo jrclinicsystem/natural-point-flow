@@ -135,6 +135,55 @@
 @layer base {
   * {
     border-color: var(--color-border);
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.42 0.075 322 / 55%) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    min-height: 34px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: oklch(0.42 0.075 322 / 55%);
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.35 0.085 322 / 72%);
+    background-clip: padding-box;
+  }
+
+  *::-webkit-scrollbar-button,
+  *::-webkit-scrollbar-corner {
+    display: none;
+    width: 0;
+    height: 0;
+    background: transparent;
+  }
+
+  aside,
+  aside * {
+    scrollbar-color: oklch(0.78 0.09 82 / 62%) transparent;
+  }
+
+  aside::-webkit-scrollbar-thumb,
+  aside *::-webkit-scrollbar-thumb {
+    background: oklch(0.78 0.09 82 / 48%);
+    background-clip: padding-box;
+  }
+
+  aside::-webkit-scrollbar-thumb:hover,
+  aside *::-webkit-scrollbar-thumb:hover {
+    background: oklch(0.82 0.1 82 / 72%);
+    background-clip: padding-box;
   }
 
   html {
