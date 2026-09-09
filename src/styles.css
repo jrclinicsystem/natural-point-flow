@@ -222,6 +222,17 @@
   }
 }
 
+/* Hide Lovable hosting badge on every viewport, including mobile. */
+#lovable-badge,
+a[href*="lovable.app"] [id*="badge"],
+a[href*="lovable.dev"] [id*="badge"],
+[class*="lovable-badge"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 @utility np-card {
   border-radius: 1.35rem;
   border: 1px solid oklch(0.885 0.018 84 / 82%);
