@@ -1,0 +1,121 @@
+name: Natural Point Header Polish
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/header-polish-hotfix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refine global header
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('src/components/AppLayout.tsx')
+          s = p.read_text()
+          old = '''        <header className="sticky top-0 z-20 border-b border-border/70 bg-background/88 backdrop-blur-xl">
+          <div className="flex min-h-[84px] items-center gap-3 px-4 lg:px-8 xl:px-10">
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen((v) => !v)}>
+              <Menu className="h-5 w-5" />
+            </Button>
+            <div className="flex-1" />
+            <div className="flex items-center gap-2">
+              {actions}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden rounded-xl border border-transparent text-muted-foreground hover:border-border hover:bg-card sm:inline-flex"
+              >
+                <Bell className="h-[17px] w-[17px]" />
+              </Button>
+              <div className="hidden min-w-[178px] items-center gap-2.5 rounded-2xl border border-border/80 bg-card/85 py-2 pr-3.5 pl-2 shadow-sm sm:flex">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-[11px] font-semibold text-primary-foreground">
+                  {(displayName || "NP").slice(0, 2).toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block max-w-[128px] truncate text-[11px] font-medium text-foreground">{displayName || "Usuário"}</span>
+                  <span className="mt-0.5 block text-[9px] font-medium uppercase tracking-[.08em] text-muted-foreground">{roleLabel[role]}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </header>'''
+          new = '''        <header className="sticky top-0 z-20 border-b border-border/70 bg-background/90 backdrop-blur-xl">
+          <div className="flex min-h-[96px] items-center gap-4 px-4 lg:px-8 xl:px-10">
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen((v) => !v)}>
+              <Menu className="h-5 w-5" />
+            </Button>
+
+            <div className="flex min-w-0 flex-1 items-center gap-4">
+              <div className="hidden items-center gap-3 sm:flex">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/[0.075] text-primary ring-1 ring-primary/10">
+                  <span className="font-display text-base">N</span>
+                </span>
+                <div className="leading-tight">
+                  <p className="font-display text-[15px] text-foreground">Natural Point</p>
+                  <p className="mt-1 text-[9px] font-semibold uppercase tracking-[.16em] text-muted-foreground">Gestão financeira</p>
+                </div>
+              </div>
+
+              <div className="hidden h-9 w-px bg-border/70 xl:block" />
+
+              <div className="hidden items-center gap-2 xl:flex">
+                <Link
+                  to="/vendas"
+                  preload="render"
+                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-border/75 bg-card/70 px-3 text-[11px] font-medium text-foreground transition hover:border-primary/20 hover:bg-primary/[0.045] hover:text-primary"
+                >
+                  <ShoppingCart className="h-3.5 w-3.5 text-gold" />
+                  Nova venda
+                </Link>
+                <Link
+                  to="/caixa"
+                  preload="render"
+                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-border/75 bg-card/70 px-3 text-[11px] font-medium text-foreground transition hover:border-primary/20 hover:bg-primary/[0.045] hover:text-primary"
+                >
+                  <Wallet className="h-3.5 w-3.5 text-gold" />
+                  Caixa
+                </Link>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {actions}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden rounded-xl border border-transparent text-muted-foreground hover:border-border hover:bg-card sm:inline-flex"
+              >
+                <Bell className="h-[17px] w-[17px]" />
+              </Button>
+              <div className="hidden min-w-[188px] items-center gap-2.5 rounded-2xl border border-border/80 bg-card/85 py-2.5 pr-4 pl-2.5 shadow-sm sm:flex">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-[11px] font-semibold text-primary-foreground">
+                  {(displayName || "NP").slice(0, 2).toUpperCase()}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block max-w-[132px] truncate text-[11px] font-medium text-foreground">{displayName || "Usuário"}</span>
+                  <span className="mt-0.5 block text-[9px] font-medium uppercase tracking-[.08em] text-muted-foreground">{roleLabel[role]}</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        </header>'''
+          if old not in s:
+              raise SystemExit('Expected header block not found')
+          p.write_text(s.replace(old, new, 1))
+      - name: Remove temporary workflow
+        run: rm .github/workflows/header-polish-hotfix.yml
+      - name: Commit changes
+        run: |
+          git config user.name "jrclinicsystem"
+          git config user.email "jrclinic.system@gmail.com"
+          git add src/components/AppLayout.tsx .github/workflows/header-polish-hotfix.yml
+          git commit -m "design: enrich and widen Natural Point header"
+          git push
