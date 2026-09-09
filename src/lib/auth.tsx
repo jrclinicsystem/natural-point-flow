@@ -11,9 +11,9 @@ type AuthValue = {
   role: Role | null;
   displayName: string;
   isManager: boolean;
-  refresh: () => Promise<void>;
+  refresh: () => Promise<Role | null>;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<{ needsConfirm: boolean }>;
+  signUp: (email: string, password: string, fullName?: string) => Promise<{ needsConfirm: boolean }>;
   signOut: () => Promise<void>;
 };
 
@@ -37,27 +37,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!uid) {
       setRole(null);
       setDisplayName("");
-      return;
+      return null;
     }
-    const [{ data: roles }, { data: profile }, { data: access }] = await Promise.all([
+
+    const [{ data: roles }, { data: profile }] = await Promise.all([
       supabase.from("user_roles").select("role").eq("user_id", uid),
-      supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
-      email
-        ? supabase.from("access_list").select("*").ilike("email", email).maybeSingle()
-        : Promise.resolve({ data: null }),
+      supabase.from("profiles").select("full_name,email").eq("id", uid).maybeSingle(),
     ]);
 
-    const candidates: unknown[] = [
-      ...(roles ?? []).map((r: Record<string, unknown>) => r["role"]),
-      (profile as Record<string, unknown> | null)?.["role"],
-      (access as Record<string, unknown> | null)?.["role"],
-    ];
-    const found = candidates.map(normalizeRole).find(Boolean) ?? null;
+    const found = (roles ?? []).map((r: Record<string, unknown>) => normalizeRole(r["role"])).find(Boolean) ?? null;
     setRole(found);
     const p = profile as Record<string, unknown> | null;
-    setDisplayName(
-      String(p?.["full_name"] ?? p?.["name"] ?? p?.["display_name"] ?? email ?? ""),
-    );
+    setDisplayName(String(p?.["full_name"] || email || ""));
+    return found;
   };
 
   useEffect(() => {
@@ -71,12 +63,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!active) return;
       setSession(data.session);
       await loadProfile(data.session?.user?.id, data.session?.user?.email ?? undefined);
-      setLoading(false);
+      if (active) setLoading(false);
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, next) => {
       if (!active) return;
-      if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
+      if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED" && event !== "TOKEN_REFRESHED") return;
       setSession(next);
       void loadProfile(next?.user?.id, next?.user?.email ?? undefined);
     });
@@ -98,25 +90,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       refresh: async () => {
         const { data } = await supabase.auth.getSession();
         setSession(data.session);
-        await loadProfile(data.session?.user?.id, data.session?.user?.email ?? undefined);
+        return loadProfile(data.session?.user?.id, data.session?.user?.email ?? undefined);
       },
       signIn: async (email, password) => {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
         if (error) throw error;
+        const resolvedRole = await loadProfile(data.user?.id, data.user?.email ?? undefined);
+        if (!resolvedRole) {
+          await supabase.auth.signOut();
+          setSession(null);
+          throw new Error("Este e-mail não está autorizado a acessar o sistema.");
+        }
+        setSession(data.session);
       },
-      signUp: async (email, password) => {
+      signUp: async (email, password, fullName) => {
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: email.trim().toLowerCase(),
           password,
-          options: { emailRedirectTo: window.location.origin },
+          options: {
+            emailRedirectTo: window.location.origin,
+            data: { full_name: fullName?.trim() || "" },
+          },
         });
         if (error) throw error;
+
+        if (data.session) {
+          setSession(data.session);
+          const resolvedRole = await loadProfile(data.user?.id, data.user?.email ?? undefined);
+          if (!resolvedRole) {
+            await supabase.auth.signOut();
+            setSession(null);
+            throw new Error("Conta criada, mas este e-mail ainda não foi autorizado por um administrador.");
+          }
+        }
         return { needsConfirm: !data.session };
       },
       signOut: async () => {
         await supabase.auth.signOut();
         setSession(null);
         setRole(null);
+        setDisplayName("");
       },
     }),
     [loading, session, role, displayName],
