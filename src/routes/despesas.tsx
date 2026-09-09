@@ -83,7 +83,7 @@ function DespesasPage() {
   const remove = async (row: any) => {
     if (!window.confirm(`Excluir a despesa “${row.description}”?`)) return;
     const { error } = await supabase.from("expenses").delete().eq("id", row.id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Despesa excluída.");
     await Promise.all([qc.invalidateQueries({ queryKey: ["np-expenses"] }), qc.invalidateQueries({ queryKey: ["dashboard"] })]);
   };
@@ -91,7 +91,7 @@ function DespesasPage() {
   const markPaid = async (row: any, methodId: string) => {
     if (!methodId) return;
     const { error } = await supabase.from("expenses").update({ status: "paid", payment_method_id: methodId, paid_at: new Date().toISOString() }).eq("id", row.id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Despesa marcada como paga.");
     await Promise.all([qc.invalidateQueries({ queryKey: ["np-expenses"] }), qc.invalidateQueries({ queryKey: ["dashboard"] })]);
   };

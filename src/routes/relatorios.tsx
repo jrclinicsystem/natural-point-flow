@@ -58,8 +58,10 @@ function RelatoriosPage() {
 
   const byMethod = useMemo(() => {
     const map = new Map<string, { name: string; gross: number; fees: number; net: number }>();
-    for (const p of data?.payments ?? []) {
-      const name = p.payment_methods?.name ?? "Outro";
+    for (const raw of data?.payments ?? []) {
+      const p: any = raw;
+      const method = Array.isArray(p.payment_methods) ? p.payment_methods[0] : p.payment_methods;
+      const name = method?.name ?? "Outro";
       const row = map.get(name) ?? { name, gross: 0, fees: 0, net: 0 };
       row.gross += Number(p.amount);
       row.fees += Number(p.fee_amount);
@@ -93,10 +95,10 @@ function RelatoriosPage() {
         </SectionCard>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <StatCard label="Vendas" value={brl(metrics.sales_period)} />
-          <StatCard label="Total recebido" value={brl(metrics.received)} tone="positive" />
-          <StatCard label="Despesas pagas" value={brl(metrics.expenses)} tone="negative" />
-          <StatCard label="Resultado" value={brl(metrics.result)} tone={(metrics.result ?? 0) >= 0 ? "positive" : "negative"} />
+          <StatCard label="Vendas" value={brl(metrics["sales_period"])} />
+          <StatCard label="Total recebido" value={brl(metrics["received"])} tone="positive" />
+          <StatCard label="Despesas pagas" value={brl(metrics["expenses"])} tone="negative" />
+          <StatCard label="Resultado" value={brl(metrics["result"])} tone={(metrics["result"] ?? 0) >= 0 ? "positive" : "negative"} />
           <StatCard label="Taxas de pagamento" value={brl(byMethod.reduce((a, r) => a + r.fees, 0))} tone="gold" />
         </div>
 

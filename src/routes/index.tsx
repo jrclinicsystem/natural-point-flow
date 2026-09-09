@@ -28,7 +28,7 @@ function LoginPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isSupabaseConfigured) return toast.error("O sistema ainda não está ligado à base de dados.");
+    if (!isSupabaseConfigured) { toast.error("O sistema ainda não está ligado à base de dados."); return; }
     setBusy(true);
     try {
       if (mode === "login") {

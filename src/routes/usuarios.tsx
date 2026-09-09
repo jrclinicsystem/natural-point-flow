@@ -58,7 +58,7 @@ function UsuariosPage() {
     const next = !row.is_active;
     if (!next && !window.confirm(`Bloquear o acesso de ${row.email}?`)) return;
     const { error } = await supabase.rpc("set_authorized_user", { _email: row.email, _role: row.role, _full_name: row.full_name, _is_active: next });
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success(next ? "Acesso reativado." : "Acesso bloqueado.");
     await qc.invalidateQueries({ queryKey: ["np-access-list"] });
   };

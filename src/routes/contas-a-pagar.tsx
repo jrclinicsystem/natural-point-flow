@@ -79,7 +79,7 @@ function ContasPagarPage() {
   const pay = async (row: any, method: string) => {
     if (!method) return;
     const { error } = await supabase.rpc("pay_account_payable", { _id: row.id, _payment_method_id: method });
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Pagamento registrado e despesa gerada automaticamente.");
     await Promise.all([
       qc.invalidateQueries({ queryKey: ["np-payables"] }), qc.invalidateQueries({ queryKey: ["np-expenses"] }), qc.invalidateQueries({ queryKey: ["dashboard"] }),
@@ -87,10 +87,10 @@ function ContasPagarPage() {
   };
 
   const remove = async (row: any) => {
-    if (row.status === "paid") return toast.error("Uma conta já paga deve permanecer no histórico.");
+    if (row.status === "paid") { toast.error("Uma conta já paga deve permanecer no histórico."); return; }
     if (!window.confirm(`Excluir “${row.description}”?`)) return;
     const { error } = await supabase.from("accounts_payable").delete().eq("id", row.id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Conta excluída.");
     await qc.invalidateQueries({ queryKey: ["np-payables"] });
   };

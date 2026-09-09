@@ -11,7 +11,14 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CaixaRouteImport } from './routes/caixa'
+import { Route as ContasAPagarRouteImport } from './routes/contas-a-pagar'
+import { Route as ContasAReceberRouteImport } from './routes/contas-a-receber'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as DespesasRouteImport } from './routes/despesas'
+import { Route as EstoqueRouteImport } from './routes/estoque'
+import { Route as RelatoriosRouteImport } from './routes/relatorios'
+import { Route as SociosRouteImport } from './routes/socios'
+import { Route as UsuariosRouteImport } from './routes/usuarios'
 import { Route as VendasRouteImport } from './routes/vendas'
 
 const IndexRoute = IndexRouteImport.update({
@@ -24,9 +31,44 @@ const CaixaRoute = CaixaRouteImport.update({
   path: '/caixa',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ContasAPagarRoute = ContasAPagarRouteImport.update({
+  id: '/contas-a-pagar',
+  path: '/contas-a-pagar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ContasAReceberRoute = ContasAReceberRouteImport.update({
+  id: '/contas-a-receber',
+  path: '/contas-a-receber',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DespesasRoute = DespesasRouteImport.update({
+  id: '/despesas',
+  path: '/despesas',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EstoqueRoute = EstoqueRouteImport.update({
+  id: '/estoque',
+  path: '/estoque',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RelatoriosRoute = RelatoriosRouteImport.update({
+  id: '/relatorios',
+  path: '/relatorios',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SociosRoute = SociosRouteImport.update({
+  id: '/socios',
+  path: '/socios',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UsuariosRoute = UsuariosRouteImport.update({
+  id: '/usuarios',
+  path: '/usuarios',
   getParentRoute: () => rootRouteImport,
 } as any)
 const VendasRoute = VendasRouteImport.update({
@@ -38,34 +80,96 @@ const VendasRoute = VendasRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/caixa': typeof CaixaRoute
+  '/contas-a-pagar': typeof ContasAPagarRoute
+  '/contas-a-receber': typeof ContasAReceberRoute
   '/dashboard': typeof DashboardRoute
+  '/despesas': typeof DespesasRoute
+  '/estoque': typeof EstoqueRoute
+  '/relatorios': typeof RelatoriosRoute
+  '/socios': typeof SociosRoute
+  '/usuarios': typeof UsuariosRoute
   '/vendas': typeof VendasRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/caixa': typeof CaixaRoute
+  '/contas-a-pagar': typeof ContasAPagarRoute
+  '/contas-a-receber': typeof ContasAReceberRoute
   '/dashboard': typeof DashboardRoute
+  '/despesas': typeof DespesasRoute
+  '/estoque': typeof EstoqueRoute
+  '/relatorios': typeof RelatoriosRoute
+  '/socios': typeof SociosRoute
+  '/usuarios': typeof UsuariosRoute
   '/vendas': typeof VendasRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/caixa': typeof CaixaRoute
+  '/contas-a-pagar': typeof ContasAPagarRoute
+  '/contas-a-receber': typeof ContasAReceberRoute
   '/dashboard': typeof DashboardRoute
+  '/despesas': typeof DespesasRoute
+  '/estoque': typeof EstoqueRoute
+  '/relatorios': typeof RelatoriosRoute
+  '/socios': typeof SociosRoute
+  '/usuarios': typeof UsuariosRoute
   '/vendas': typeof VendasRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/caixa' | '/dashboard' | '/vendas'
+  fullPaths:
+    | '/'
+    | '/caixa'
+    | '/contas-a-pagar'
+    | '/contas-a-receber'
+    | '/dashboard'
+    | '/despesas'
+    | '/estoque'
+    | '/relatorios'
+    | '/socios'
+    | '/usuarios'
+    | '/vendas'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/caixa' | '/dashboard' | '/vendas'
-  id: '__root__' | '/' | '/caixa' | '/dashboard' | '/vendas'
+  to:
+    | '/'
+    | '/caixa'
+    | '/contas-a-pagar'
+    | '/contas-a-receber'
+    | '/dashboard'
+    | '/despesas'
+    | '/estoque'
+    | '/relatorios'
+    | '/socios'
+    | '/usuarios'
+    | '/vendas'
+  id:
+    | '__root__'
+    | '/'
+    | '/caixa'
+    | '/contas-a-pagar'
+    | '/contas-a-receber'
+    | '/dashboard'
+    | '/despesas'
+    | '/estoque'
+    | '/relatorios'
+    | '/socios'
+    | '/usuarios'
+    | '/vendas'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CaixaRoute: typeof CaixaRoute
+  ContasAPagarRoute: typeof ContasAPagarRoute
+  ContasAReceberRoute: typeof ContasAReceberRoute
   DashboardRoute: typeof DashboardRoute
+  DespesasRoute: typeof DespesasRoute
+  EstoqueRoute: typeof EstoqueRoute
+  RelatoriosRoute: typeof RelatoriosRoute
+  SociosRoute: typeof SociosRoute
+  UsuariosRoute: typeof UsuariosRoute
   VendasRoute: typeof VendasRoute
 }
 
@@ -85,11 +189,60 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CaixaRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/contas-a-pagar': {
+      id: '/contas-a-pagar'
+      path: '/contas-a-pagar'
+      fullPath: '/contas-a-pagar'
+      preLoaderRoute: typeof ContasAPagarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/contas-a-receber': {
+      id: '/contas-a-receber'
+      path: '/contas-a-receber'
+      fullPath: '/contas-a-receber'
+      preLoaderRoute: typeof ContasAReceberRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dashboard': {
       id: '/dashboard'
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/despesas': {
+      id: '/despesas'
+      path: '/despesas'
+      fullPath: '/despesas'
+      preLoaderRoute: typeof DespesasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/estoque': {
+      id: '/estoque'
+      path: '/estoque'
+      fullPath: '/estoque'
+      preLoaderRoute: typeof EstoqueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/relatorios': {
+      id: '/relatorios'
+      path: '/relatorios'
+      fullPath: '/relatorios'
+      preLoaderRoute: typeof RelatoriosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/socios': {
+      id: '/socios'
+      path: '/socios'
+      fullPath: '/socios'
+      preLoaderRoute: typeof SociosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/usuarios': {
+      id: '/usuarios'
+      path: '/usuarios'
+      fullPath: '/usuarios'
+      preLoaderRoute: typeof UsuariosRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/vendas': {
@@ -105,7 +258,14 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CaixaRoute: CaixaRoute,
+  ContasAPagarRoute: ContasAPagarRoute,
+  ContasAReceberRoute: ContasAReceberRoute,
   DashboardRoute: DashboardRoute,
+  DespesasRoute: DespesasRoute,
+  EstoqueRoute: EstoqueRoute,
+  RelatoriosRoute: RelatoriosRoute,
+  SociosRoute: SociosRoute,
+  UsuariosRoute: UsuariosRoute,
   VendasRoute: VendasRoute,
 }
 export const routeTree = rootRouteImport

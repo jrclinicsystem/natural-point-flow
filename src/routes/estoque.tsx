@@ -191,7 +191,7 @@ function EstoquePage() {
   const deactivate = async (p: Product) => {
     if (!window.confirm(`Desativar ${p.name}?`)) return;
     const { error } = await supabase.from("products").update({ is_active: false }).eq("id", p.id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Produto desativado.");
     void qc.invalidateQueries({ queryKey: ["np-products"] });
   };

@@ -61,22 +61,22 @@ function DashboardPage() {
       {isLoading ? <p className="text-sm text-muted-foreground">Carregando dados reais…</p> : <div className="space-y-6">
         {isManager ? <>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Vendas de hoje" value={brl(metrics.sales_today)} />
-            <StatCard label="Vendas do mês" value={brl(metrics.sales_period)} tone="gold" />
-            <StatCard label="Total recebido líquido" value={brl(metrics.received)} tone="positive" hint="Já descontadas taxas de pagamento" />
-            <StatCard label="Despesas pagas" value={brl(metrics.expenses)} tone="negative" />
+            <StatCard label="Vendas de hoje" value={brl(metrics["sales_today"])} />
+            <StatCard label="Vendas do mês" value={brl(metrics["sales_period"])} tone="gold" />
+            <StatCard label="Total recebido líquido" value={brl(metrics["received"])} tone="positive" hint="Já descontadas taxas de pagamento" />
+            <StatCard label="Despesas pagas" value={brl(metrics["expenses"])} tone="negative" />
           </div>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Resultado do mês" value={brl(metrics.result)} tone={(metrics.result ?? 0) >= 0 ? "positive" : "negative"} />
-            <StatCard label="Valor em caixa" value={brl(metrics.cash)} hint={openCash ? "Caixa aberto" : "Caixa fechado"} />
-            <StatCard label="Contas a pagar" value={brl(metrics.payable)} tone="gold" />
-            <StatCard label="Contas a receber" value={brl(metrics.receivable)} />
+            <StatCard label="Resultado do mês" value={brl(metrics["result"])} tone={(metrics["result"] ?? 0) >= 0 ? "positive" : "negative"} />
+            <StatCard label="Valor em caixa" value={brl(metrics["cash"])} hint={openCash ? "Caixa aberto" : "Caixa fechado"} />
+            <StatCard label="Contas a pagar" value={brl(metrics["payable"])} tone="gold" />
+            <StatCard label="Contas a receber" value={brl(metrics["receivable"])} />
           </div>
         </> : <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Vendas de hoje" value={brl(metrics.sales_today)} />
-          <StatCard label="Vendas do mês" value={brl(metrics.sales_period)} tone="gold" />
-          <StatCard label="Valor em caixa" value={brl(metrics.cash)} hint={openCash ? "Caixa aberto" : "Caixa fechado"} />
-          <StatCard label="Contas a receber" value={brl(metrics.receivable)} />
+          <StatCard label="Vendas de hoje" value={brl(metrics["sales_today"])} />
+          <StatCard label="Vendas do mês" value={brl(metrics["sales_period"])} tone="gold" />
+          <StatCard label="Valor em caixa" value={brl(metrics["cash"])} hint={openCash ? "Caixa aberto" : "Caixa fechado"} />
+          <StatCard label="Contas a receber" value={brl(metrics["receivable"])} />
         </div>}
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><StatCard label="Estoque baixo" value={String(lowStock.length)} tone={lowStock.length ? "negative" : "positive"} hint="itens no limite" /><StatCard label="Fiados pendentes" value={String((data?.receivables ?? []).filter((r: any) => r.status === "pending").length)} /><StatCard label="Caixa" value={openCash ? "Aberto" : "Fechado"} tone={openCash ? "positive" : "default"} />{isManager && <StatCard label="Lançamentos do mês" value={String(sales.length + expenses.length)} />}</div>

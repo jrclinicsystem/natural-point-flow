@@ -70,7 +70,7 @@ function ContasReceberPage() {
   const receive = async (row: any, method: string) => {
     if (!method) return;
     const { error } = await supabase.rpc("receive_account_receivable", { _id: row.id, _payment_method_id: method });
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Recebimento registrado.");
     await Promise.all([
       qc.invalidateQueries({ queryKey: ["np-receivables"] }), qc.invalidateQueries({ queryKey: ["np-sales"] }), qc.invalidateQueries({ queryKey: ["dashboard"] }), qc.invalidateQueries({ queryKey: ["caixa"] }),
@@ -78,11 +78,11 @@ function ContasReceberPage() {
   };
 
   const remove = async (row: any) => {
-    if (row.sale_id) return toast.error("Recebimentos gerados por uma venda fiada devem permanecer vinculados à venda.");
-    if (row.status === "paid") return toast.error("Um recebimento já pago deve permanecer no histórico.");
+    if (row.sale_id) { toast.error("Recebimentos gerados por uma venda fiada devem permanecer vinculados à venda."); return; }
+    if (row.status === "paid") { toast.error("Um recebimento já pago deve permanecer no histórico."); return; }
     if (!window.confirm(`Excluir a conta de ${row.customer_name}?`)) return;
     const { error } = await supabase.from("accounts_receivable").delete().eq("id", row.id);
-    if (error) return toast.error(error.message);
+    if (error) { toast.error(error.message); return; }
     toast.success("Conta excluída.");
     await qc.invalidateQueries({ queryKey: ["np-receivables"] });
   };

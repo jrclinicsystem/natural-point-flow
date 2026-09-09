@@ -63,7 +63,7 @@ function VendasPage() {
   const sellableProducts = products.filter((p) => p.sale_mode === "unit" || p.sale_mode === "addon");
 
   useEffect(() => {
-    if (!pricePerKg && weightProducts.length) setPricePerKg(String(weightProducts[0].price ?? ""));
+    if (!pricePerKg && weightProducts.length) setPricePerKg(String(weightProducts[0]?.price ?? ""));
   }, [weightProducts, pricePerKg]);
 
   const kg = useMemo(() => {
@@ -85,7 +85,7 @@ function VendasPage() {
   }, [sellableProducts, search]);
 
   const addProduct = (p: Product) => {
-    if (p.stock_qty <= 0) return toast.error(`${p.name} está sem estoque.`);
+    if (p.stock_qty <= 0) { toast.error(`${p.name} está sem estoque.`); return; }
     const unitPrice = p.sale_mode === "addon" && p.is_free_addon ? 0 : Number(p.price);
     setCart((current) => {
       const existing = current.find((i) => i.productId === p.id);

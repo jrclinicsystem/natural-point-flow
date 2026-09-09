@@ -42,12 +42,16 @@ function CaixaPage() {
   const open = sessions.find((s: any) => s.status === "open") as any;
   const latestClosed = sessions.find((s: any) => s.status === "closed") as any;
   const metrics = useMemo(() => Object.fromEntries((data?.summary ?? []).map((r: any) => [r.metric, Number(r.value)])), [data]);
-  const expected = Number(metrics.cash ?? open?.opening_cash ?? 0);
+  const expected = Number(metrics["cash"] ?? open?.opening_cash ?? 0);
   const differencePreview = parseNumber(counted) - expected;
 
   const movements = useMemo(() => {
     const rows: Array<{ id: string; date: string; label: string; amount: number; type: "in" | "out" }> = [];
-    for (const p of data?.cashPayments ?? []) rows.push({ id: `sp-${p.id}`, date: p.created_at, label: p.sales?.customer_name ? `Venda · ${p.sales.customer_name}` : "Venda em dinheiro", amount: Number(p.amount), type: "in" });
+    for (const raw of data?.cashPayments ?? []) {
+      const p: any = raw;
+      const sale = Array.isArray(p.sales) ? p.sales[0] : p.sales;
+      rows.push({ id: `sp-${p.id}`, date: p.created_at, label: sale?.customer_name ? `Venda · ${sale.customer_name}` : "Venda em dinheiro", amount: Number(p.amount), type: "in" });
+    }
     for (const r of data?.manualReceipts ?? []) rows.push({ id: `ar-${r.id}`, date: r.paid_at, label: `Recebimento · ${r.customer_name}`, amount: Number(r.amount), type: "in" });
     for (const e of data?.cashExpenses ?? []) rows.push({ id: `ex-${e.id}`, date: e.paid_at || e.created_at, label: e.description, amount: Number(e.amount), type: "out" });
     return rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
