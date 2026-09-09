@@ -159,9 +159,10 @@ export function AppLayout({
                     <Link
                       key={item.to}
                       to={item.to}
+                      preload="render"
                       onClick={() => setOpen(false)}
                       className={cn(
-                        "group flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[13px] font-medium transition-all duration-200",
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2.5 text-[13px] font-medium transition-all duration-150",
                         active
                           ? "bg-white text-primary shadow-[0_10px_28px_-18px_rgba(0,0,0,.55)]"
                           : "text-white/72 hover:bg-white/[.08] hover:text-white",
@@ -169,7 +170,7 @@ export function AppLayout({
                     >
                       <span
                         className={cn(
-                          "flex h-8 w-8 items-center justify-center rounded-xl transition-colors",
+                          "flex h-8 w-8 items-center justify-center rounded-xl transition-colors duration-150",
                           active ? "bg-primary/8 text-primary" : "bg-white/[.055] text-gold group-hover:bg-white/10",
                         )}
                       >
