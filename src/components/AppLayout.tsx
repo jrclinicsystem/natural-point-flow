@@ -52,11 +52,8 @@ const GROUP_LABELS = {
 const roleLabel = { socio: "Sócio", admin: "Administrador", caixa: "Caixa" } as const;
 
 export function AppLayout({
-  title,
-  subtitle,
   actions,
   managerOnly = false,
-  hideHeading = false,
   children,
 }: {
   title: string;
@@ -211,22 +208,11 @@ export function AppLayout({
 
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-20 border-b border-border/70 bg-background/88 backdrop-blur-xl">
-          <div className={cn("flex items-center gap-3 px-4 lg:px-8 xl:px-10", hideHeading ? "min-h-[60px]" : "min-h-[78px]")}>
+          <div className="flex min-h-[84px] items-center gap-3 px-4 lg:px-8 xl:px-10">
             <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setOpen((v) => !v)}>
               <Menu className="h-5 w-5" />
             </Button>
-            {!hideHeading && (
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[.16em] text-muted-foreground">
-                  <span>Natural Point</span>
-                  <span className="text-gold">•</span>
-                  <span>Sistema de gestão</span>
-                </div>
-                <h1 className="mt-1 truncate font-display text-[22px] leading-none text-foreground lg:text-[26px]">{title}</h1>
-                {subtitle && <p className="mt-1.5 truncate text-xs text-muted-foreground">{subtitle}</p>}
-              </div>
-            )}
-            {hideHeading && <div className="flex-1" />}
+            <div className="flex-1" />
             <div className="flex items-center gap-2">
               {actions}
               <Button
@@ -236,8 +222,8 @@ export function AppLayout({
               >
                 <Bell className="h-[17px] w-[17px]" />
               </Button>
-              <div className="hidden min-w-[178px] items-center gap-2.5 rounded-2xl border border-border/80 bg-card/85 py-1.5 pr-3 pl-1.5 shadow-sm sm:flex">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-[11px] font-semibold text-primary-foreground">
+              <div className="hidden min-w-[178px] items-center gap-2.5 rounded-2xl border border-border/80 bg-card/85 py-2 pr-3.5 pl-2 shadow-sm sm:flex">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-[11px] font-semibold text-primary-foreground">
                   {(displayName || "NP").slice(0, 2).toUpperCase()}
                 </span>
                 <span className="min-w-0 flex-1">
