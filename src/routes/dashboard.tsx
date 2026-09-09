@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   ArrowDownRight,
   ArrowUpRight,
@@ -197,9 +197,78 @@ function DashboardPage() {
             </section>
           </div>
 
-          <SectionCard title={isManager ? "Vendas x despesas · últimos 14 dias" : "Vendas · últimos 14 dias"} description="Evolução diária para visualizar o movimento sem poluir o painel.">
-            <div className="h-72"><ResponsiveContainer width="100%" height="100%"><BarChart data={days} barGap={5}><CartesianGrid strokeDasharray="3 5" stroke="var(--border)" vertical={false} /><XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} dy={8} /><YAxis fontSize={10} axisLine={false} tickLine={false} width={40} /><Tooltip cursor={{ fill: "rgba(75, 25, 75, .035)" }} formatter={(v) => brl(Number(v))} contentStyle={{ borderRadius: 14, border: "1px solid var(--border)", boxShadow: "0 12px 30px -20px rgba(40,10,45,.35)" }} /><Bar dataKey="vendas" fill="var(--chart-1)" radius={[7, 7, 2, 2]} maxBarSize={26} />{isManager && <Bar dataKey="despesas" fill="var(--chart-4)" radius={[7, 7, 2, 2]} maxBarSize={26} />}</BarChart></ResponsiveContainer></div>
-          </SectionCard>
+          <section className="np-card overflow-hidden p-5 sm:p-6">
+  <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <div>
+        <div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-success">
+          <ArrowUpRight className="h-3.5 w-3.5" /> Evolução financeira
+        </div>
+        <h3 className="mt-1.5 font-display text-[1.35rem] text-foreground">
+          {isManager ? "Vendas e despesas" : "Evolução das vendas"}
+        </h3>
+        <p className="mt-1 text-[11px] text-muted-foreground">Movimento diário dos últimos 14 dias.</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full border border-border/75 bg-background/65 px-3 py-1.5 text-[10px] font-medium text-muted-foreground">Últimos 14 dias</span>
+        <span className="rounded-full bg-success/10 px-3 py-1.5 text-[10px] font-semibold text-success">Atual</span>
+      </div>
+    </div>
+
+    <div className={cn("grid gap-3", isManager ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+      <div className="rounded-2xl bg-primary/[0.045] px-4 py-3.5 ring-1 ring-primary/[0.06]">
+        <p className="text-[10px] font-medium text-muted-foreground">Vendas no período</p>
+        <p className="mt-1 font-display text-xl text-foreground">{brl(days.reduce((sum, day) => sum + day.vendas, 0))}</p>
+      </div>
+      {isManager && (
+        <div className="rounded-2xl bg-destructive/[0.045] px-4 py-3.5 ring-1 ring-destructive/[0.06]">
+          <p className="text-[10px] font-medium text-muted-foreground">Despesas no período</p>
+          <p className="mt-1 font-display text-xl text-foreground">{brl(days.reduce((sum, day) => sum + day.despesas, 0))}</p>
+        </div>
+      )}
+      <div className="rounded-2xl bg-success/[0.055] px-4 py-3.5 ring-1 ring-success/[0.07]">
+        <p className="text-[10px] font-medium text-muted-foreground">{isManager ? "Saldo do período" : "Média diária"}</p>
+        <p className="mt-1 font-display text-xl text-foreground">
+          {brl(isManager ? days.reduce((sum, day) => sum + day.vendas - day.despesas, 0) : days.reduce((sum, day) => sum + day.vendas, 0) / 14)}
+        </p>
+      </div>
+    </div>
+
+    <div className="rounded-[1.4rem] border border-border/75 bg-background/45 px-2 pb-2 pt-5 sm:px-4">
+      <div className="h-[300px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={days} margin={{ top: 8, right: 8, left: -14, bottom: 2 }}>
+            <defs>
+              <linearGradient id="npSalesFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.22} />
+                <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.015} />
+              </linearGradient>
+              <linearGradient id="npExpenseFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--chart-4)" stopOpacity={0.14} />
+                <stop offset="100%" stopColor="var(--chart-4)" stopOpacity={0.01} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 6" stroke="var(--border)" vertical={false} opacity={0.72} />
+            <XAxis dataKey="label" fontSize={10} axisLine={false} tickLine={false} dy={8} tick={{ fill: "var(--muted-foreground)" }} />
+            <YAxis fontSize={10} axisLine={false} tickLine={false} width={48} tick={{ fill: "var(--muted-foreground)" }} tickFormatter={(value) => value >= 1000 ? `${Math.round(value / 1000)}k` : String(value)} />
+            <Tooltip
+              cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
+              formatter={(value, name) => [brl(Number(value)), name === "vendas" ? "Vendas" : "Despesas"]}
+              labelFormatter={(label) => `Dia ${label}`}
+              contentStyle={{ borderRadius: 16, border: "1px solid var(--border)", background: "var(--card)", boxShadow: "0 18px 45px -28px rgba(48,12,55,.4)", fontSize: 12 }}
+            />
+            <Area type="monotone" dataKey="vendas" stroke="var(--chart-1)" strokeWidth={2.4} fill="url(#npSalesFill)" dot={false} activeDot={{ r: 4, strokeWidth: 2, fill: "var(--card)" }} />
+            {isManager && <Area type="monotone" dataKey="despesas" stroke="var(--chart-4)" strokeWidth={2} fill="url(#npExpenseFill)" dot={false} activeDot={{ r: 4, strokeWidth: 2, fill: "var(--card)" }} />}
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex flex-wrap items-center justify-center gap-5 pb-2 pt-1 text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-primary" />Vendas</span>
+        {isManager && <span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-destructive" />Despesas</span>}
+      </div>
+    </div>
+  </div>
+</section>
 
           <div className="grid gap-6 xl:grid-cols-2">
             <SectionCard title="Movimentações recentes" description="Últimas entradas e saídas registradas no sistema.">
