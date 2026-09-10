@@ -1,114 +1,77 @@
 # Natural Point Flow
 
-Crie um novo projeto chamado **Natural Point Finance**. Este projeto deve ser SEPARADO do JR Clinic e será exclusivamente um sistema de gestão financeira para uma empresa de açaí chamada **Natural Point**.
+Sistema integrado de operação e gestão da Natural Point.
 
-IMPORTANTE: nesta primeira etapa, crie apenas a BASE VISUAL E ESTRUTURAL do sistema: layout, navegação lateral, dashboard, cards, áreas e componentes principais. Não implemente ainda regras financeiras complexas, integrações, banco de dados ou automações profundas; isso será definido depois.
+## Escopo atual
 
-DIREÇÃO VISUAL DA MARCA NATURAL POINT:
-- Estética premium, natural, sofisticada e contemporânea.
-- Paleta inspirada na identidade visual da marca: roxo/açaí profundo (vinho muito escuro) como cor principal, dourado quente como destaque, bege/areia/off-white como fundo e neutros quentes. Pode usar verde orgânico de forma muito sutil em indicadores positivos, sem dominar a interface.
-- NÃO usar design preto e branco puro.
-- Fundo geral claro em areia/off-white, cards claros com contraste suave, bordas discretas e sombras muito leves.
-- Evitar excesso de dourado; usar em detalhes, ícones, estados ativos e pequenos acentos.
-- Tipografia moderna, elegante, legível e profissional. Nada infantil, nada de estética genérica de açaíteria.
-- O sistema deve parecer um produto SaaS financeiro premium, limpo e organizado.
+O projeto reúne os fluxos principais da loja em uma única aplicação:
 
-REFERÊNCIA DE LAYOUT:
-Use como inspiração um dashboard SaaS moderno com:
-- Sidebar fixa à esquerda, clara, vertical.
-- Logo/nome Natural Point no topo da sidebar.
-- Menu com ícones e labels bem espaçados.
-- Área principal ampla.
-- Header superior com título da página, busca, ícone de notificações e avatar/perfil.
-- Filtros de período no topo (Dia, Semana, Mês, Ano) e seletor de intervalo de datas.
-- Cards de resumo financeiro logo abaixo.
-- Gráficos e tabelas organizados em grid.
-- Muitos espaços em branco, cantos arredondados e hierarquia visual clara.
+- vendas / PDV;
+- produtos por peso, unidade e adicionais;
+- estoque e movimentações;
+- abertura e fechamento de caixa;
+- despesas;
+- contas a pagar;
+- contas a receber / fiado;
+- dashboard e relatórios;
+- lucro e divisão entre sócios;
+- usuários e perfis de acesso.
 
-ESTRUTURA INICIAL DO SISTEMA:
-1. **Dashboard**
-   - Cards: Faturamento, Entradas, Saídas, Resultado, Saldo em caixa.
-   - Comparativo percentual com período anterior.
-   - Gráfico de Entradas x Saídas.
-   - Gráfico de faturamento por período.
-   - Bloco de resumo do mês.
-   - Lista das movimentações mais recentes.
+## Perfis de acesso
 
-2. **Entradas**
-   - Tela base com filtros, busca, período e tabela/lista de entradas.
-   - Botão “Nova entrada”.
-   - Colunas: descrição, categoria, forma de pagamento, data, valor, status.
+### Sócio / Administrador
 
-3. **Saídas**
-   - Tela base semelhante à de entradas.
-   - Botão “Nova saída”.
-   - Colunas: descrição, categoria, fornecedor, forma de pagamento, data, valor, status.
+Pode administrar preços, custos, produtos, estoque, descontos, despesas, contas, usuários e configurações de gestão.
 
-4. **Caixa**
-   - Saldo atual.
-   - Abertura e fechamento de caixa como componentes visuais de base.
-   - Movimentações do dia.
+### Caixa / Colaborador
 
-5. **Contas a pagar**
-   - Cards de pendentes, vencendo e atrasadas.
-   - Tabela base.
+Focado na operação diária. Pode vender, consultar informações operacionais, abrir/fechar caixa e registrar recebimentos permitidos. Alterações sensíveis são protegidas por RLS/RPC no Supabase, e não apenas pela interface.
 
-6. **Contas a receber**
-   - Cards de pendentes, vencendo e atrasadas.
-   - Tabela base.
+## Regras de segurança e integridade
 
-7. **Categorias**
-   - Estrutura visual para categorias de entrada e saída.
+- O navegador não é fonte confiável para regras financeiras.
+- Totais, preços de produtos, taxas e permissões críticas são validados no banco.
+- Operações que envolvem múltiplas tabelas usam RPCs/transações atômicas quando necessário.
+- Tabelas expostas mantêm RLS habilitado.
+- Funções `SECURITY DEFINER` devem validar explicitamente identidade e função do usuário e limitar `EXECUTE` às roles necessárias.
+- Alterações de schema, RLS, funções e triggers devem ser versionadas em `supabase/migrations`.
 
-8. **Relatórios**
-   - Área com filtros combinados, período e cards de resumo.
-   - Espaço visual para relatórios mensais e exportações futuras.
+## Convenções operacionais
 
-9. **Configurações**
-   - Blocos para dados da empresa, formas de pagamento, usuários e preferências do sistema.
+- Data operacional: `America/Sao_Paulo`.
+- Peso no PDV: informado em gramas e convertido para kg internamente.
+- Valores monetários aceitam entrada com vírgula ou ponto decimal no frontend, mas o backend é responsável pela validação final.
+- Venda fiada exige cliente e vencimento.
+- Registros financeiros realizados não devem ser simplesmente apagados; cancelamentos/estornos devem preservar histórico.
 
-SIDEBAR SUGERIDA:
-Dashboard
-Entradas
-Saídas
-Caixa
-Contas a pagar
-Contas a receber
-Categorias
-Relatórios
-Configurações
+## Banco de dados
 
-DESIGN SYSTEM:
-- Sidebar off-white clara com item ativo em fundo roxo/açaí profundo e texto claro, ou fundo bege com indicador dourado/roxo.
-- Cards com radius grande, entre 18px e 24px.
-- Métricas com número grande e título pequeno, porém legível.
-- Ícones lineares e elegantes.
-- Estados positivos em verde orgânico suave; negativos em vinho/vermelho terroso discreto.
-- Botões primários em roxo/açaí profundo com hover levemente mais escuro.
-- Dourado apenas em detalhes e destaques premium.
-- Criar layout responsivo para desktop e tablet, mantendo sensação de sistema profissional.
+O backend utiliza Supabase. Novas alterações de banco devem ser aplicadas por migration e mantidas no GitHub.
 
-Use dados fictícios apenas para demonstrar o layout. Não crie telas de vendas, estoque, pedidos, cardápio ou delivery nesta etapa: é SOMENTE sistema financeiro.
+As migrations P0 desta branch reforçam:
 
-Objetivo desta primeira versão: entregar um dashboard financeiro visualmente forte, organizado, moderno e consistente com a marca Natural Point, pronto para receber as regras reais que serão enviadas depois.
+- escrita direta restrita para o perfil Caixa em vendas, itens, pagamentos, contas a receber e sessões de caixa;
+- cálculo de preço e total da venda no servidor;
+- preços de produtos por unidade/adicionais obtidos diretamente do cadastro do banco;
+- preço/kg do Caixa obtido do produto por peso ativo configurado;
+- bloqueio de desconto pelo Caixa no backend;
+- validação de quantidade e estoque no servidor;
+- vencimento obrigatório para fiado dentro da própria RPC de venda;
+- apenas um caixa aberto por vez, garantido também por índice único parcial;
+- timezone operacional de São Paulo em operações de caixa e dashboard.
 
-This project was built with [Lovable](https://lovable.dev).
+## Desenvolvimento
 
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/efdf9e80-737a-443a-8c17-fcd425ea23c9).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+```bash
+bun install
+bun run dev
 ```
+
+Validação local:
+
+```bash
+bun run build
+bun x tsc --noEmit
+```
+
+O GitHub Actions valida o projeto; o CI não modifica automaticamente o código da branch principal.

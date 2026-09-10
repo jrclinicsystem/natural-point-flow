@@ -7,6 +7,7 @@ import { AppLayout, StatCard } from "@/components/AppLayout";
 import { EmptyState, Field, NativeSelect, SearchBox, SectionCard, StatusPill, TableShell } from "@/components/NaturalPointUI";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { brl, dateBR, parseNumber, todayISO } from "@/lib/format";
 
@@ -17,6 +18,7 @@ export const Route = createFileRoute("/contas-a-receber")({
 
 function ContasReceberPage() {
   const qc = useQueryClient();
+  const { isManager } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
   const [customer, setCustomer] = useState("");
@@ -48,6 +50,7 @@ function ContasReceberPage() {
 
   const save = useMutation({
     mutationFn: async () => {
+      if (!isManager) throw new Error("Somente sócios ou administradores podem cadastrar valores manuais a receber.");
       const value = parseNumber(amount);
       if (!customer.trim()) throw new Error("Informe o nome da pessoa.");
       if (value <= 0) throw new Error("Informe um valor válido.");
@@ -78,6 +81,7 @@ function ContasReceberPage() {
   };
 
   const remove = async (row: any) => {
+    if (!isManager) { toast.error("Somente sócios ou administradores podem excluir contas manuais pendentes."); return; }
     if (row.sale_id) { toast.error("Recebimentos gerados por uma venda fiada devem permanecer vinculados à venda."); return; }
     if (row.status === "paid") { toast.error("Um recebimento já pago deve permanecer no histórico."); return; }
     if (!window.confirm(`Excluir a conta de ${row.customer_name}?`)) return;
@@ -88,11 +92,11 @@ function ContasReceberPage() {
   };
 
   return (
-    <AppLayout title="Contas a receber" subtitle="Fiado restrito e demais valores a receber" actions={<Button size="sm" onClick={() => setShowForm((v) => !v)}><Plus className="mr-2 h-4 w-4" /> Nova conta</Button>}>
+    <AppLayout title="Contas a receber" subtitle="Fiado restrito e demais valores a receber" actions={isManager ? <Button size="sm" onClick={() => setShowForm((v) => !v)}><Plus className="mr-2 h-4 w-4" /> Nova conta</Button> : undefined}>
       <div className="space-y-6">
         <div className="grid gap-4 sm:grid-cols-3"><StatCard label="Pendente" value={brl(pending.reduce((a: number, r: any) => a + Number(r.amount), 0))} tone="gold" /><StatCard label="Atrasado" value={brl(overdue.reduce((a: number, r: any) => a + Number(r.amount), 0))} tone={overdue.length ? "negative" : "positive"} /><StatCard label="Já recebido" value={brl(paid.reduce((a: number, r: any) => a + Number(r.amount), 0))} tone="positive" /></div>
 
-        {showForm && <SectionCard title="Cadastrar valor a receber" description="Use apenas para pessoas de confiança. As vendas fiadas feitas no PDV entram aqui automaticamente.">
+        {showForm && isManager && <SectionCard title="Cadastrar valor a receber" description="Use apenas para pessoas de confiança. As vendas fiadas feitas no PDV entram aqui automaticamente.">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <Field label="Nome da pessoa"><Input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="Nome completo" /></Field>
             <Field label="Descrição"><Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Motivo do valor" /></Field>
@@ -104,7 +108,7 @@ function ContasReceberPage() {
         </SectionCard>}
 
         <SectionCard title="Contas e fiados" actions={<div className="w-72 max-w-full"><SearchBox value={search} onChange={setSearch} placeholder="Buscar por pessoa" /></div>}>
-          {isLoading ? <p className="text-sm text-muted-foreground">Carregando…</p> : filtered.length === 0 ? <EmptyState title="Nada a receber" description="As vendas fiadas e os valores cadastrados manualmente aparecerão aqui." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Pessoa</th><th className="px-4 py-3">Origem</th><th className="px-4 py-3">Vencimento</th><th className="px-4 py-3">Valor</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((row: any) => { const late = row.status === "pending" && !!row.due_date && row.due_date < todayISO(); return <tr key={row.id}><td className="px-4 py-3 font-medium">{row.customer_name}<p className="text-xs font-normal text-muted-foreground">{row.description || "-"}</p></td><td className="px-4 py-3 text-muted-foreground">{row.sale_id ? "Venda fiada" : "Manual"}</td><td className="px-4 py-3">{dateBR(row.due_date)}</td><td className="px-4 py-3 font-medium">{brl(row.amount)}</td><td className="px-4 py-3"><StatusPill status={row.status} overdue={late} /></td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2">{row.status === "pending" && <NativeSelect value="" onChange={(v) => receive(row, v)} className="h-8 w-44"><option value="">Registrar recebimento...</option>{methods.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</NativeSelect>}<Button size="sm" variant="ghost" className="text-destructive" onClick={() => remove(row)}><Trash2 className="h-4 w-4" /></Button></div></td></tr>; })}</tbody></table></TableShell>}
+          {isLoading ? <p className="text-sm text-muted-foreground">Carregando…</p> : filtered.length === 0 ? <EmptyState title="Nada a receber" description="As vendas fiadas e os valores cadastrados manualmente aparecerão aqui." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Pessoa</th><th className="px-4 py-3">Origem</th><th className="px-4 py-3">Vencimento</th><th className="px-4 py-3">Valor</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((row: any) => { const late = row.status === "pending" && !!row.due_date && row.due_date < todayISO(); return <tr key={row.id}><td className="px-4 py-3 font-medium">{row.customer_name}<p className="text-xs font-normal text-muted-foreground">{row.description || "-"}</p></td><td className="px-4 py-3 text-muted-foreground">{row.sale_id ? "Venda fiada" : "Manual"}</td><td className="px-4 py-3">{dateBR(row.due_date)}</td><td className="px-4 py-3 font-medium">{brl(row.amount)}</td><td className="px-4 py-3"><StatusPill status={row.status} overdue={late} /></td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2">{row.status === "pending" && <NativeSelect value="" onChange={(v) => receive(row, v)} className="h-8 w-44"><option value="">Registrar recebimento...</option>{methods.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</NativeSelect>}{isManager && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => remove(row)}><Trash2 className="h-4 w-4" /></Button>}</div></td></tr>; })}</tbody></table></TableShell>}
         </SectionCard>
       </div>
     </AppLayout>

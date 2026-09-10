@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Minus, Plus, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, StatCard } from "@/components/AppLayout";
-import { EmptyState, Field, NativeSelect, SearchBox, SectionCard, TableShell } from "@/components/NaturalPointUI";
+import { EmptyState, Field, SearchBox, SectionCard, TableShell } from "@/components/NaturalPointUI";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { brl, dateTimeBR, parseNumber, todayISO } from "@/lib/format";
 
@@ -32,7 +33,8 @@ type CartItem = { productId: string; label: string; qty: number; unitPrice: numb
 
 function VendasPage() {
   const qc = useQueryClient();
-  const [weight, setWeight] = useState("");
+  const { isManager } = useAuth();
+  const [weightGrams, setWeightGrams] = useState("");
   const [pricePerKg, setPricePerKg] = useState("");
   const [discount, setDiscount] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -61,20 +63,20 @@ function VendasPage() {
   const sales = data?.sales ?? [];
   const weightProducts = products.filter((p) => p.sale_mode === "weight");
   const sellableProducts = products.filter((p) => p.sale_mode === "unit" || p.sale_mode === "addon");
+  const configuredPricePerKg = Number(weightProducts[0]?.price ?? 0);
 
   useEffect(() => {
-    if (!pricePerKg && weightProducts.length) setPricePerKg(String(weightProducts[0]?.price ?? ""));
-  }, [weightProducts, pricePerKg]);
+    if (!pricePerKg && configuredPricePerKg > 0) setPricePerKg(String(configuredPricePerKg));
+  }, [configuredPricePerKg, pricePerKg]);
 
-  const kg = useMemo(() => {
-    const raw = parseNumber(weight);
-    if (raw <= 0) return 0;
-    return raw > 20 ? raw / 1000 : raw;
-  }, [weight]);
-  const weightedTotal = kg * parseNumber(pricePerKg);
+  const grams = useMemo(() => Math.max(parseNumber(weightGrams), 0), [weightGrams]);
+  const kg = grams / 1000;
+  const pricePerKgAmount = parseNumber(pricePerKg);
+  const discountAmount = Math.max(parseNumber(discount), 0);
+  const weightedTotal = kg * pricePerKgAmount;
   const itemsTotal = cart.reduce((a, i) => a + i.qty * i.unitPrice, 0);
   const subtotal = weightedTotal + itemsTotal;
-  const total = Math.max(subtotal - parseNumber(discount), 0);
+  const total = Math.max(subtotal - discountAmount, 0);
   const paid = Object.values(payments).reduce((a, v) => a + parseNumber(v || "0"), 0);
   const fiadoMethod = methods.find((m) => m.kind === "credit_account");
   const fiadoAmount = fiadoMethod ? parseNumber(payments[fiadoMethod.id] ?? "0") : 0;
@@ -117,8 +119,15 @@ function VendasPage() {
   const createSale = useMutation({
     mutationFn: async () => {
       if (total <= 0) throw new Error("Adicione o peso ou algum produto à venda.");
+      if (grams > 0 && pricePerKgAmount <= 0) throw new Error("O preço por kg precisa ser maior que zero.");
+      if (discountAmount > subtotal) throw new Error("O desconto não pode ser maior que o subtotal da venda.");
+      if (!isManager && discountAmount > 0) throw new Error("Somente sócios ou administradores podem aplicar desconto.");
+      if (!isManager && grams > 0 && Math.abs(pricePerKgAmount - configuredPricePerKg) > 0.001) {
+        throw new Error("Somente sócios ou administradores podem alterar o preço por kg.");
+      }
       if (Math.abs(paid - total) > 0.01) throw new Error(`Os pagamentos precisam somar ${brl(total)}.`);
       if (fiadoAmount > 0 && !customer.trim()) throw new Error("Informe o nome do cliente da venda fiada.");
+      if (fiadoAmount > 0 && !fiadoDueDate) throw new Error("Informe o vencimento da venda fiada.");
 
       const paymentPayload = Object.entries(payments)
         .map(([payment_method_id, value]) => ({ payment_method_id, amount: parseNumber(value) }))
@@ -135,23 +144,19 @@ function VendasPage() {
       const { data: saleId, error } = await supabase.rpc("create_sale", {
         _customer_name: customer.trim() || null,
         _weight_kg: kg || null,
-        _price_per_kg: kg ? parseNumber(pricePerKg) : null,
-        _discount: parseNumber(discount),
+        _price_per_kg: kg ? pricePerKgAmount : null,
+        _discount: discountAmount,
         _items: itemPayload,
         _payments: paymentPayload,
         _notes: null,
+        _fiado_due_date: fiadoAmount > 0 ? fiadoDueDate : null,
       });
       if (error) throw error;
-
-      if (fiadoAmount > 0 && fiadoDueDate && saleId) {
-        const { error: dueError } = await supabase.from("accounts_receivable").update({ due_date: fiadoDueDate }).eq("sale_id", saleId);
-        if (dueError) throw dueError;
-      }
       return saleId;
     },
     onSuccess: async () => {
       toast.success("Venda registrada com sucesso.");
-      setWeight(""); setDiscount(""); setCart([]); setPayments({}); setCustomer(""); setFiadoDueDate("");
+      setWeightGrams(""); setDiscount(""); setCart([]); setPayments({}); setCustomer(""); setFiadoDueDate("");
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["np-sales-workspace"] }),
         qc.invalidateQueries({ queryKey: ["np-products"] }),
@@ -168,11 +173,11 @@ function VendasPage() {
     <AppLayout title="Vendas" subtitle="PDV rápido: açaí + gelato por peso, adicionais e produtos por unidade">
       <div className="grid gap-6 xl:grid-cols-[1fr_360px]">
         <div className="space-y-6">
-          <SectionCard title="Açaí + gelato por peso" description="Informe o peso total dos dois juntos. Ex.: 500 g × preço do kg.">
+          <SectionCard title="Açaí + gelato por peso" description="Informe sempre o peso total em gramas. Ex.: 500 g × preço do kg.">
             <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Peso total (g ou kg)"><Input inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="Ex.: 500" /></Field>
-              <Field label="Preço por kg"><Input inputMode="decimal" value={pricePerKg} onChange={(e) => setPricePerKg(e.target.value)} placeholder="Ex.: 59,90" /></Field>
-              <div className="rounded-2xl bg-primary px-4 py-3 text-primary-foreground"><p className="text-xs opacity-70">Valor por peso</p><p className="mt-1 font-display text-2xl">{brl(weightedTotal)}</p><p className="text-[11px] opacity-70">{kg > 0 ? `${kg.toFixed(3)} kg` : "Aguardando peso"}</p></div>
+              <Field label="Peso total (gramas)"><Input inputMode="decimal" value={weightGrams} onChange={(e) => setWeightGrams(e.target.value)} placeholder="Ex.: 500" /></Field>
+              <Field label={`Preço por kg${isManager ? "" : " · definido pelo cadastro"}`}><Input inputMode="decimal" value={pricePerKg} onChange={(e) => setPricePerKg(e.target.value)} placeholder="Ex.: 59,90" disabled={!isManager} /></Field>
+              <div className="rounded-2xl bg-primary px-4 py-3 text-primary-foreground"><p className="text-xs opacity-70">Valor por peso</p><p className="mt-1 font-display text-2xl">{brl(weightedTotal)}</p><p className="text-[11px] opacity-70">{grams > 0 ? `${grams.toFixed(0)} g · ${kg.toFixed(3)} kg` : "Aguardando peso"}</p></div>
             </div>
           </SectionCard>
 
@@ -186,16 +191,16 @@ function VendasPage() {
         </div>
 
         <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
-          <StatCard label="Total da venda" value={brl(total)} tone="gold" hint={`Subtotal ${brl(subtotal)}${parseNumber(discount) ? ` · desconto ${brl(parseNumber(discount))}` : ""}`} />
+          <StatCard label="Total da venda" value={brl(total)} tone="gold" hint={`Subtotal ${brl(subtotal)}${discountAmount ? ` · desconto ${brl(discountAmount)}` : ""}`} />
 
           <SectionCard title="Carrinho">
             {cart.length === 0 ? <div className="py-5 text-center text-sm text-muted-foreground"><ShoppingBag className="mx-auto mb-2 h-6 w-6" />Sem produtos adicionais.</div> : <div className="space-y-3">{cart.map((item) => <div key={item.productId} className="rounded-xl border border-border p-3"><div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">{item.label}</p><p className="text-sm">{brl(item.qty * item.unitPrice)}</p></div><div className="mt-2 flex items-center gap-2"><Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => changeQty(item.productId, -1)}><Minus className="h-3 w-3" /></Button><span className="min-w-6 text-center text-xs">{item.qty}</span><Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={() => changeQty(item.productId, 1)}><Plus className="h-3 w-3" /></Button><span className="ml-auto text-xs text-muted-foreground">{item.unitPrice === 0 ? "grátis" : brl(item.unitPrice) + "/un"}</span></div></div>)}</div>}
-            <div className="mt-4"><Field label="Desconto (opcional)"><Input inputMode="decimal" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="0,00" /></Field></div>
+            <div className="mt-4"><Field label={`Desconto (opcional)${isManager ? "" : " · restrito aos sócios"}`}><Input inputMode="decimal" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="0,00" disabled={!isManager} /></Field></div>
           </SectionCard>
 
           <SectionCard title="Pagamento" description="Pode dividir a mesma venda em mais de uma forma.">
             <div className="space-y-3">{methods.map((m) => <Field key={m.id} label={`${m.name}${Number(m.fee_percent) > 0 ? ` · taxa ${m.fee_percent}%` : ""}`}><Input inputMode="decimal" value={payments[m.id] ?? ""} onChange={(e) => setPayments((prev) => ({ ...prev, [m.id]: e.target.value }))} placeholder="0,00" /></Field>)}</div>
-            {fiadoAmount > 0 && <div className="mt-4 space-y-3 rounded-2xl border border-gold/40 bg-gold/5 p-4"><Field label="Nome da pessoa"><Input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="Obrigatório para fiado" /></Field><Field label="Vencimento"><Input type="date" min={todayISO()} value={fiadoDueDate} onChange={(e) => setFiadoDueDate(e.target.value)} /></Field></div>}
+            {fiadoAmount > 0 && <div className="mt-4 space-y-3 rounded-2xl border border-gold/40 bg-gold/5 p-4"><Field label="Nome da pessoa"><Input value={customer} onChange={(e) => setCustomer(e.target.value)} placeholder="Obrigatório para fiado" /></Field><Field label="Vencimento"><Input type="date" min={todayISO()} value={fiadoDueDate} onChange={(e) => setFiadoDueDate(e.target.value)} required /></Field></div>}
             <div className="mt-4 rounded-xl bg-muted/50 p-3 text-xs"><div className="flex justify-between"><span>Total</span><strong>{brl(total)}</strong></div><div className="mt-1 flex justify-between"><span>Pagamentos</span><span>{brl(paid)}</span></div><div className={`mt-1 flex justify-between ${Math.abs(total - paid) <= 0.01 ? "text-success" : "text-destructive"}`}><span>Diferença</span><span>{brl(total - paid)}</span></div></div>
             <Button className="mt-4 w-full" disabled={createSale.isPending || total <= 0 || Math.abs(total - paid) > 0.01} onClick={() => createSale.mutate()}>{createSale.isPending ? "Finalizando…" : "Finalizar venda"}</Button>
           </SectionCard>
