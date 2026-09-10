@@ -149,13 +149,9 @@ function VendasPage() {
         _items: itemPayload,
         _payments: paymentPayload,
         _notes: null,
+        _fiado_due_date: fiadoAmount > 0 ? fiadoDueDate : null,
       });
       if (error) throw error;
-
-      if (fiadoAmount > 0 && saleId) {
-        const { error: dueError } = await supabase.from("accounts_receivable").update({ due_date: fiadoDueDate }).eq("sale_id", saleId);
-        if (dueError) throw dueError;
-      }
       return saleId;
     },
     onSuccess: async () => {
