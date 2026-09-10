@@ -4,9 +4,10 @@ import { useMemo, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, StatCard } from "@/components/AppLayout";
-import { EmptyState, Field, NativeSelect, SearchBox, SectionCard, StatusPill, TableShell, TextArea } from "@/components/NaturalPointUI";
+import { EmptyState, Field, NativeSelect, SearchBox, SectionCard, StatusPill, TableShell } from "@/components/NaturalPointUI";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { brl, dateBR, parseNumber, todayISO } from "@/lib/format";
 
@@ -17,6 +18,7 @@ export const Route = createFileRoute("/despesas")({
 
 function DespesasPage() {
   const qc = useQueryClient();
+  const { isManager } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
   const [description, setDescription] = useState("");
@@ -30,6 +32,7 @@ function DespesasPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["np-expenses"],
+    enabled: isManager,
     queryFn: async () => {
       const [expenses, categories, methods] = await Promise.all([
         supabase.from("expenses").select("*,expense_categories(name),payment_methods(name,kind)").order("expense_date", { ascending: false }),
@@ -53,6 +56,7 @@ function DespesasPage() {
 
   const save = useMutation({
     mutationFn: async () => {
+      if (!isManager) throw new Error("Apenas sócios ou administradores podem registrar despesas.");
       const value = parseNumber(amount);
       if (!description.trim()) throw new Error("Informe a descrição da despesa.");
       if (value <= 0) throw new Error("Informe um valor maior que zero.");
@@ -81,23 +85,29 @@ function DespesasPage() {
   });
 
   const remove = async (row: any) => {
-    if (!window.confirm(`Excluir a despesa “${row.description}”?`)) return;
-    const { error } = await supabase.from("expenses").delete().eq("id", row.id);
+    if (!isManager) { toast.error("Acesso restrito."); return; }
+    if (row.status === "paid") {
+      toast.error("Despesa paga não pode ser excluída. Use um estorno para preservar o histórico financeiro.");
+      return;
+    }
+    if (!window.confirm(`Excluir a despesa pendente “${row.description}”?`)) return;
+    const { error } = await supabase.from("expenses").delete().eq("id", row.id).eq("status", "pending");
     if (error) { toast.error(error.message); return; }
-    toast.success("Despesa excluída.");
+    toast.success("Despesa pendente excluída.");
     await Promise.all([qc.invalidateQueries({ queryKey: ["np-expenses"] }), qc.invalidateQueries({ queryKey: ["dashboard"] })]);
   };
 
   const markPaid = async (row: any, methodId: string) => {
+    if (!isManager) { toast.error("Acesso restrito."); return; }
     if (!methodId) return;
-    const { error } = await supabase.from("expenses").update({ status: "paid", payment_method_id: methodId, paid_at: new Date().toISOString() }).eq("id", row.id);
+    const { error } = await supabase.from("expenses").update({ status: "paid", payment_method_id: methodId, paid_at: new Date().toISOString() }).eq("id", row.id).eq("status", "pending");
     if (error) { toast.error(error.message); return; }
     toast.success("Despesa marcada como paga.");
     await Promise.all([qc.invalidateQueries({ queryKey: ["np-expenses"] }), qc.invalidateQueries({ queryKey: ["dashboard"] })]);
   };
 
   return (
-    <AppLayout managerOnly title="Despesas" subtitle="Compras, contas e demais saídas da loja" actions={<Button size="sm" onClick={() => setShowForm((v) => !v)}><Plus className="mr-2 h-4 w-4" /> Nova despesa</Button>}>
+    <AppLayout managerOnly title="Despesas" subtitle="Compras, contas e demais saídas da loja" actions={isManager ? <Button size="sm" onClick={() => setShowForm((v) => !v)}><Plus className="mr-2 h-4 w-4" /> Nova despesa</Button> : undefined}>
       <div className="space-y-6">
         <div className="grid gap-4 sm:grid-cols-3"><StatCard label="Despesas pagas" value={brl(paidTotal)} tone="negative" /><StatCard label="Despesas pendentes" value={brl(pendingTotal)} tone="gold" /><StatCard label="Lançamentos" value={String(expenses.length)} /></div>
 
@@ -115,7 +125,7 @@ function DespesasPage() {
         </SectionCard>}
 
         <SectionCard title="Histórico de despesas" actions={<div className="w-72 max-w-full"><SearchBox value={search} onChange={setSearch} placeholder="Buscar despesa" /></div>}>
-          {isLoading ? <p className="text-sm text-muted-foreground">Carregando…</p> : filtered.length === 0 ? <EmptyState title="Nenhuma despesa cadastrada" description="Quando você registrar compras, contas ou outras despesas elas aparecerão aqui." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Descrição</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Data</th><th className="px-4 py-3">Valor</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((row: any) => <tr key={row.id}><td className="px-4 py-3 font-medium">{row.description}<p className="text-xs font-normal text-muted-foreground">{row.supplier || "Sem fornecedor"}</p></td><td className="px-4 py-3 text-muted-foreground">{row.expense_categories?.name || "-"}</td><td className="px-4 py-3">{dateBR(row.expense_date)}</td><td className="px-4 py-3 font-medium">{brl(row.amount)}</td><td className="px-4 py-3"><StatusPill status={row.status} overdue={row.status === "pending" && !!row.due_date && row.due_date < todayISO()} /></td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2">{row.status === "pending" && <NativeSelect value="" onChange={(v) => markPaid(row, v)} className="h-8 w-40"><option value="">Marcar paga...</option>{methods.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</NativeSelect>}<Button size="sm" variant="ghost" className="text-destructive" onClick={() => remove(row)}><Trash2 className="h-4 w-4" /></Button></div></td></tr>)}</tbody></table></TableShell>}
+          {isLoading ? <p className="text-sm text-muted-foreground">Carregando…</p> : filtered.length === 0 ? <EmptyState title="Nenhuma despesa cadastrada" description="Quando você registrar compras, contas ou outras despesas elas aparecerão aqui." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Descrição</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Data</th><th className="px-4 py-3">Valor</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((row: any) => <tr key={row.id}><td className="px-4 py-3 font-medium">{row.description}<p className="text-xs font-normal text-muted-foreground">{row.supplier || "Sem fornecedor"}</p></td><td className="px-4 py-3 text-muted-foreground">{row.expense_categories?.name || "-"}</td><td className="px-4 py-3">{dateBR(row.expense_date)}</td><td className="px-4 py-3 font-medium">{brl(row.amount)}</td><td className="px-4 py-3"><StatusPill status={row.status} overdue={row.status === "pending" && !!row.due_date && row.due_date < todayISO()} /></td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2">{row.status === "pending" && <><NativeSelect value="" onChange={(v) => markPaid(row, v)} className="h-8 w-40"><option value="">Marcar paga...</option>{methods.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</NativeSelect><Button size="sm" variant="ghost" className="text-destructive" onClick={() => remove(row)}><Trash2 className="h-4 w-4" /></Button></>}</div></td></tr>)}</tbody></table></TableShell>}
         </SectionCard>
       </div>
     </AppLayout>
