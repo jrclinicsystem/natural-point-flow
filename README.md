@@ -25,15 +25,15 @@ Pode administrar preços, custos, produtos, estoque, descontos, despesas, contas
 
 ### Caixa / Colaborador
 
-Focado na operação diária. Pode vender, consultar informações operacionais, abrir/fechar caixa e registrar recebimentos permitidos. Alterações sensíveis devem ser protegidas também por RLS/RPC no Supabase, e não apenas pela interface.
+Focado na operação diária. Pode vender, consultar informações operacionais, abrir/fechar caixa e registrar recebimentos permitidos. Alterações sensíveis são protegidas por RLS/RPC no Supabase, e não apenas pela interface.
 
 ## Regras de segurança e integridade
 
 - O navegador não é fonte confiável para regras financeiras.
-- Totais, preços de produtos, taxas e permissões críticas devem ser validados no banco.
-- Operações que envolvam múltiplas tabelas devem usar RPCs/transações atômicas.
-- Tabelas expostas devem manter RLS habilitado.
-- Funções `SECURITY DEFINER` devem validar explicitamente a identidade e a função do usuário.
+- Totais, preços de produtos, taxas e permissões críticas são validados no banco.
+- Operações que envolvem múltiplas tabelas usam RPCs/transações atômicas quando necessário.
+- Tabelas expostas mantêm RLS habilitado.
+- Funções `SECURITY DEFINER` devem validar explicitamente identidade e função do usuário e limitar `EXECUTE` às roles necessárias.
 - Alterações de schema, RLS, funções e triggers devem ser versionadas em `supabase/migrations`.
 
 ## Convenções operacionais
@@ -48,15 +48,17 @@ Focado na operação diária. Pode vender, consultar informações operacionais,
 
 O backend utiliza Supabase. Novas alterações de banco devem ser aplicadas por migration e mantidas no GitHub.
 
-As migrations P0 adicionadas nesta branch reforçam:
+As migrations P0 desta branch reforçam:
 
 - escrita direta restrita para o perfil Caixa em vendas, itens, pagamentos, contas a receber e sessões de caixa;
 - cálculo de preço e total da venda no servidor;
-- bloqueio de desconto pelo Caixa;
-- validação de estoque no servidor;
-- vencimento obrigatório para fiado;
-- apenas um caixa aberto por vez;
-- timezone operacional de São Paulo em operações de caixa/dashboard.
+- preços de produtos por unidade/adicionais obtidos diretamente do cadastro do banco;
+- preço/kg do Caixa obtido do produto por peso ativo configurado;
+- bloqueio de desconto pelo Caixa no backend;
+- validação de quantidade e estoque no servidor;
+- vencimento obrigatório para fiado dentro da própria RPC de venda;
+- apenas um caixa aberto por vez, garantido também por índice único parcial;
+- timezone operacional de São Paulo em operações de caixa e dashboard.
 
 ## Desenvolvimento
 
@@ -72,4 +74,4 @@ bun run build
 bun x tsc --noEmit
 ```
 
-O GitHub Actions deve validar o projeto; o CI não deve modificar automaticamente o código da branch principal.
+O GitHub Actions valida o projeto; o CI não modifica automaticamente o código da branch principal.
