@@ -1,5 +1,5 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -134,10 +134,7 @@ export function AppLayout({
     .map((group) => ({ group, items: items.filter((item) => item.group === group) }))
     .filter((entry) => entry.items.length > 0);
 
-  const mobileItems = useMemo(
-    () => [...items, ...(isManager ? [MOBILE_PURCHASE_ITEM] : [])],
-    [items, isManager],
-  );
+  const mobileItems = [...items, ...(isManager ? [MOBILE_PURCHASE_ITEM] : [])];
   const mobilePrimaryItems = mobileItems.filter((item) => MOBILE_PRIMARY_ROUTES.includes(item.to));
   const mobileMoreGroups = (["operacao", "financeiro", "gestao"] as const)
     .map((group) => ({
@@ -227,9 +224,7 @@ export function AppLayout({
         <header className="sticky top-0 z-20 border-b border-border/70 bg-background/95 backdrop-blur-xl">
           <div className="flex min-h-[62px] items-center gap-3 px-3 sm:px-4 lg:min-h-[96px] lg:gap-4 lg:px-8 xl:px-10">
             <div className="flex min-w-0 flex-1 items-center gap-3 lg:hidden">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-[12px] font-semibold text-primary-foreground shadow-sm">
-                N
-              </span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-[12px] font-semibold text-primary-foreground shadow-sm">N</span>
               <div className="min-w-0 leading-tight">
                 <p className="truncate font-display text-[17px] text-foreground">{title}</p>
                 <p className="mt-0.5 truncate text-[10px] font-medium text-muted-foreground">{subtitle || "Natural Point"}</p>
@@ -238,97 +233,49 @@ export function AppLayout({
 
             <div className="hidden min-w-0 flex-1 items-center gap-4 lg:flex">
               <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/[0.075] text-primary ring-1 ring-primary/10">
-                  <span className="font-display text-base">N</span>
-                </span>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/[0.075] text-primary ring-1 ring-primary/10"><span className="font-display text-base">N</span></span>
                 <div className="leading-tight">
                   <p className="font-display text-[15px] text-foreground">Natural Point</p>
                   <p className="mt-1 text-[9px] font-semibold uppercase tracking-[.16em] text-muted-foreground">Gestão financeira</p>
                 </div>
               </div>
-
               <div className="hidden h-9 w-px bg-border/70 xl:block" />
-
               <div className="hidden items-center gap-2 xl:flex">
-                <Link
-                  to="/vendas"
-                  preload="render"
-                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-border/75 bg-card/70 px-3 text-[11px] font-medium text-foreground transition hover:border-primary/20 hover:bg-primary/[0.045] hover:text-primary"
-                >
-                  <ShoppingCart className="h-3.5 w-3.5 text-gold" />
-                  Nova venda
-                </Link>
-                <Link
-                  to="/caixa"
-                  preload="render"
-                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-border/75 bg-card/70 px-3 text-[11px] font-medium text-foreground transition hover:border-primary/20 hover:bg-primary/[0.045] hover:text-primary"
-                >
-                  <Wallet className="h-3.5 w-3.5 text-gold" />
-                  Caixa
-                </Link>
+                <Link to="/vendas" preload="render" className="inline-flex h-9 items-center gap-2 rounded-xl border border-border/75 bg-card/70 px-3 text-[11px] font-medium text-foreground transition hover:border-primary/20 hover:bg-primary/[0.045] hover:text-primary"><ShoppingCart className="h-3.5 w-3.5 text-gold" />Nova venda</Link>
+                <Link to="/caixa" preload="render" className="inline-flex h-9 items-center gap-2 rounded-xl border border-border/75 bg-card/70 px-3 text-[11px] font-medium text-foreground transition hover:border-primary/20 hover:bg-primary/[0.045] hover:text-primary"><Wallet className="h-3.5 w-3.5 text-gold" />Caixa</Link>
               </div>
             </div>
 
             <div className="hidden items-center gap-2 lg:flex">
               {actions}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="hidden rounded-xl border border-transparent text-muted-foreground hover:border-border hover:bg-card sm:inline-flex"
-              >
-                <Bell className="h-[17px] w-[17px]" />
-              </Button>
+              <Button variant="ghost" size="icon" className="hidden rounded-xl border border-transparent text-muted-foreground hover:border-border hover:bg-card sm:inline-flex"><Bell className="h-[17px] w-[17px]" /></Button>
               <div className="hidden min-w-[188px] items-center gap-2.5 rounded-2xl border border-border/80 bg-card/85 py-2.5 pr-4 pl-2.5 shadow-sm sm:flex">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-[11px] font-semibold text-primary-foreground">
-                  {(displayName || "NP").slice(0, 2).toUpperCase()}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block max-w-[132px] truncate text-[11px] font-medium text-foreground">{displayName || "Usuário"}</span>
-                  <span className="mt-0.5 block text-[9px] font-medium uppercase tracking-[.08em] text-muted-foreground">{roleLabel[role]}</span>
-                </span>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary text-[11px] font-semibold text-primary-foreground">{(displayName || "NP").slice(0, 2).toUpperCase()}</span>
+                <span className="min-w-0 flex-1"><span className="block max-w-[132px] truncate text-[11px] font-medium text-foreground">{displayName || "Usuário"}</span><span className="mt-0.5 block text-[9px] font-medium uppercase tracking-[.08em] text-muted-foreground">{roleLabel[role]}</span></span>
               </div>
             </div>
           </div>
 
-          {actions && (
-            <div className="np-mobile-actions flex items-center gap-2 overflow-x-auto border-t border-border/45 px-3 py-2 lg:hidden">
-              {actions}
-            </div>
-          )}
+          {actions && <div className="np-mobile-actions flex items-center gap-2 overflow-x-auto border-t border-border/45 px-3 py-2 lg:hidden">{actions}</div>}
         </header>
 
         <main className="np-mobile-main px-3 py-4 pb-[calc(6.4rem+env(safe-area-inset-bottom))] sm:px-4 sm:py-6 lg:px-8 lg:py-8 lg:pb-8 xl:px-10">
           <div className="mx-auto w-full max-w-[1600px]">
             {managerOnly && !isManager ? (
-              <div className="np-card p-6 text-center sm:p-8">
-                <h2 className="font-display text-xl text-primary">Acesso restrito</h2>
-                <p className="mt-2 text-sm text-muted-foreground">Esta área é exclusiva de sócios e administradores.</p>
-              </div>
-            ) : (
-              children
-            )}
+              <div className="np-card p-6 text-center sm:p-8"><h2 className="font-display text-xl text-primary">Acesso restrito</h2><p className="mt-2 text-sm text-muted-foreground">Esta área é exclusiva de sócios e administradores.</p></div>
+            ) : children}
           </div>
         </main>
       </div>
 
       {mobileMenuOpen && (
         <>
-          <button
-            className="fixed inset-0 z-40 bg-primary/25 backdrop-blur-[2px] lg:hidden"
-            aria-label="Fechar menu"
-            onClick={() => setMobileMenuOpen(false)}
-          />
+          <button className="fixed inset-0 z-40 bg-primary/25 backdrop-blur-[2px] lg:hidden" aria-label="Fechar menu" onClick={() => setMobileMenuOpen(false)} />
           <div className="fixed inset-x-3 bottom-[calc(5.65rem+env(safe-area-inset-bottom))] z-50 max-h-[72vh] overflow-hidden rounded-[1.45rem] border border-border/80 bg-card shadow-[0_24px_70px_-22px_rgba(48,12,55,.5)] lg:hidden">
             <div className="flex items-center justify-between border-b border-border/70 px-4 py-3.5">
-              <div className="min-w-0">
-                <p className="font-display text-[17px] text-foreground">Mais opções</p>
-                <p className="mt-0.5 truncate text-[10px] text-muted-foreground">{displayName || "Usuário"} · {roleLabel[role]}</p>
-              </div>
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl" onClick={() => setMobileMenuOpen(false)}>
-                <X className="h-4 w-4" />
-              </Button>
+              <div className="min-w-0"><p className="font-display text-[17px] text-foreground">Mais opções</p><p className="mt-0.5 truncate text-[10px] text-muted-foreground">{displayName || "Usuário"} · {roleLabel[role]}</p></div>
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-xl" onClick={() => setMobileMenuOpen(false)}><X className="h-4 w-4" /></Button>
             </div>
-
             <div className="max-h-[calc(72vh-7rem)] overflow-y-auto px-3 py-3">
               {mobileMoreGroups.map(({ group, items: groupItems }) => (
                 <div key={group} className="mb-4 last:mb-0">
@@ -337,20 +284,8 @@ export function AppLayout({
                     {groupItems.map((item) => {
                       const active = pathname === item.to;
                       return (
-                        <Link
-                          key={item.to}
-                          to={item.to}
-                          preload="render"
-                          className={cn(
-                            "flex min-h-[64px] items-center gap-2.5 rounded-2xl border px-3 py-2.5 text-left text-[12px] font-medium transition",
-                            active
-                              ? "border-primary/15 bg-primary/[0.07] text-primary"
-                              : "border-border/70 bg-background/60 text-foreground",
-                          )}
-                        >
-                          <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-xl", active ? "bg-primary text-primary-foreground" : "bg-primary/[0.06] text-primary")}>
-                            <item.icon className="h-4 w-4" />
-                          </span>
+                        <Link key={item.to} to={item.to} preload="render" className={cn("flex min-h-[64px] items-center gap-2.5 rounded-2xl border px-3 py-2.5 text-left text-[12px] font-medium transition", active ? "border-primary/15 bg-primary/[0.07] text-primary" : "border-border/70 bg-background/60 text-foreground")}>
+                          <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-xl", active ? "bg-primary text-primary-foreground" : "bg-primary/[0.06] text-primary")}><item.icon className="h-4 w-4" /></span>
                           <span className="min-w-0 leading-tight">{item.label}</span>
                         </Link>
                       );
@@ -359,17 +294,8 @@ export function AppLayout({
                 </div>
               ))}
             </div>
-
             <div className="border-t border-border/70 p-3">
-              <button
-                onClick={async () => {
-                  await signOut();
-                  navigate({ to: "/", replace: true });
-                }}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-muted/70 px-4 py-3 text-[12px] font-medium text-muted-foreground"
-              >
-                <LogOut className="h-4 w-4" /> Sair do sistema
-              </button>
+              <button onClick={async () => { await signOut(); navigate({ to: "/", replace: true }); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-muted/70 px-4 py-3 text-[12px] font-medium text-muted-foreground"><LogOut className="h-4 w-4" /> Sair do sistema</button>
             </div>
           </div>
         </>
@@ -381,36 +307,16 @@ export function AppLayout({
             const active = pathname === item.to;
             const mobileLabel = item.to === "/dashboard" ? "Início" : item.label;
             return (
-              <Link
-                key={item.to}
-                to={item.to}
-                preload="render"
-                className={cn(
-                  "relative flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-1.5 text-[9px] font-semibold transition-colors",
-                  active ? "text-primary" : "text-muted-foreground",
-                )}
-              >
+              <Link key={item.to} to={item.to} preload="render" className={cn("relative flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-1.5 text-[9px] font-semibold transition-colors", active ? "text-primary" : "text-muted-foreground")}>
                 {active && <span className="absolute top-1 h-0.5 w-6 rounded-full bg-gold" />}
-                <span className={cn("flex h-8 w-8 items-center justify-center rounded-xl", active && "bg-primary/[0.07]")}>
-                  <item.icon className="h-[18px] w-[18px]" strokeWidth={active ? 2.1 : 1.8} />
-                </span>
+                <span className={cn("flex h-8 w-8 items-center justify-center rounded-xl", active && "bg-primary/[0.07]")}><item.icon className="h-[18px] w-[18px]" strokeWidth={active ? 2.1 : 1.8} /></span>
                 <span className="max-w-full truncate">{mobileLabel}</span>
               </Link>
             );
           })}
-
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen((current) => !current)}
-            className={cn(
-              "relative flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-1.5 text-[9px] font-semibold transition-colors",
-              moreIsActive || mobileMenuOpen ? "text-primary" : "text-muted-foreground",
-            )}
-          >
+          <button type="button" onClick={() => setMobileMenuOpen((current) => !current)} className={cn("relative flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-1 py-1.5 text-[9px] font-semibold transition-colors", moreIsActive || mobileMenuOpen ? "text-primary" : "text-muted-foreground")}>
             {(moreIsActive || mobileMenuOpen) && <span className="absolute top-1 h-0.5 w-6 rounded-full bg-gold" />}
-            <span className={cn("flex h-8 w-8 items-center justify-center rounded-xl", (moreIsActive || mobileMenuOpen) && "bg-primary/[0.07]")}>
-              <MoreHorizontal className="h-[19px] w-[19px]" />
-            </span>
+            <span className={cn("flex h-8 w-8 items-center justify-center rounded-xl", (moreIsActive || mobileMenuOpen) && "bg-primary/[0.07]")}><MoreHorizontal className="h-[19px] w-[19px]" /></span>
             <span>Mais</span>
           </button>
         </div>
