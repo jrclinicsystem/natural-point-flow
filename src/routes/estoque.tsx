@@ -1,7 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Boxes, Plus, RefreshCw } from "lucide-react";
+import { Boxes, Plus, RefreshCw, ShoppingBasket } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, StatCard } from "@/components/AppLayout";
 import { EmptyState, Field, LowStockBadge, NativeSelect, SearchBox, SectionCard, TableShell, TextArea } from "@/components/NaturalPointUI";
@@ -48,7 +48,7 @@ function EstoquePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [product, setProduct] = useState(emptyProduct);
   const [movementProduct, setMovementProduct] = useState("");
-  const [movementType, setMovementType] = useState("in");
+  const [movementType, setMovementType] = useState("loss");
   const [movementQty, setMovementQty] = useState("");
   const [movementCost, setMovementCost] = useState("");
   const [movementReason, setMovementReason] = useState("");
@@ -189,6 +189,7 @@ function EstoquePage() {
   };
 
   const deactivate = async (p: Product) => {
+    if (p.sale_mode === "weight") { toast.error("O produto por peso Açaí + Gelato é necessário para o PDV e não pode ser desativado sem substituição."); return; }
     if (!window.confirm(`Desativar ${p.name}?`)) return;
     const { error } = await supabase.from("products").update({ is_active: false }).eq("id", p.id);
     if (error) { toast.error(error.message); return; }
@@ -200,7 +201,7 @@ function EstoquePage() {
     <AppLayout
       title="Estoque"
       subtitle="Produtos, complementos, embalagens e movimentações"
-      actions={<Button size="sm" onClick={() => setShowProductForm((v) => !v)}><Plus className="mr-2 h-4 w-4" /> Novo produto</Button>}
+      actions={<div className="flex gap-2"><Button size="sm" variant="outline" asChild><Link to="/compras"><ShoppingBasket className="mr-2 h-4 w-4" /> Compras</Link></Button><Button size="sm" onClick={() => setShowProductForm((v) => !v)}><Plus className="mr-2 h-4 w-4" /> Novo produto</Button></div>}
     >
       <div className="space-y-6">
         <div className="grid gap-4 sm:grid-cols-3">
@@ -210,7 +211,7 @@ function EstoquePage() {
         </div>
 
         {showProductForm && (
-          <SectionCard title={editingId ? "Editar produto" : "Cadastrar produto"} description="Use por peso para itens vendidos em kg, unidade para bebidas/embalagens e adicional para complementos.">
+          <SectionCard title={editingId ? "Editar produto" : "Cadastrar produto"} description="Use por peso somente para a base Açaí + Gelato; unidade para bebidas/embalagens e adicional para complementos.">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Field label="Nome"><Input value={product.name} onChange={(e) => setProduct({ ...product, name: e.target.value })} placeholder="Ex.: Água de coco" /></Field>
               <Field label="Categoria"><Input value={product.category} onChange={(e) => setProduct({ ...product, category: e.target.value })} placeholder="Bebidas, Complementos..." /></Field>
@@ -228,25 +229,24 @@ function EstoquePage() {
           </SectionCard>
         )}
 
-        <SectionCard title="Movimentar estoque" description="Entrada de compra, saída, perda ou ajuste de saldo.">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <SectionCard title="Ajustes de estoque" description="Use somente para perdas, saídas excepcionais e correção de saldo. Entradas de fornecedor devem ser feitas em Compras para gerar o financeiro automaticamente.">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <Field label="Produto"><NativeSelect value={movementProduct} onChange={setMovementProduct}><option value="">Selecione</option>{products.filter((p) => p.is_active).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</NativeSelect></Field>
-            <Field label="Movimento"><NativeSelect value={movementType} onChange={setMovementType}><option value="in">Entrada/compra</option><option value="out">Saída manual</option><option value="loss">Perda</option><option value="adjustment">Ajustar saldo final</option></NativeSelect></Field>
+            <Field label="Movimento"><NativeSelect value={movementType} onChange={setMovementType}><option value="loss">Perda</option><option value="out">Saída manual</option><option value="adjustment">Ajustar saldo final</option></NativeSelect></Field>
             <Field label={movementType === "adjustment" ? "Novo saldo" : "Quantidade"}><Input value={movementQty} onChange={(e) => setMovementQty(e.target.value)} placeholder="0" /></Field>
-            <Field label="Custo unitário (opcional)"><Input value={movementCost} onChange={(e) => setMovementCost(e.target.value)} placeholder="0,00" /></Field>
-            <Field label="Motivo"><Input value={movementReason} onChange={(e) => setMovementReason(e.target.value)} placeholder="Compra fornecedor..." /></Field>
+            <Field label="Motivo"><Input value={movementReason} onChange={(e) => setMovementReason(e.target.value)} placeholder="Quebra, consumo interno, conferência..." /></Field>
           </div>
-          <Button className="mt-4" onClick={() => saveMovement.mutate()} disabled={saveMovement.isPending}><RefreshCw className="mr-2 h-4 w-4" /> Registrar movimentação</Button>
+          <Button className="mt-4" onClick={() => saveMovement.mutate()} disabled={saveMovement.isPending}><RefreshCw className="mr-2 h-4 w-4" /> Registrar ajuste</Button>
         </SectionCard>
 
         <SectionCard title="Produtos" actions={<div className="w-72 max-w-full"><SearchBox value={search} onChange={setSearch} placeholder="Buscar produto ou categoria" /></div>}>
-          {isLoading ? <p className="text-sm text-muted-foreground">Carregando estoque…</p> : filtered.length === 0 ? <EmptyState title="Nenhum produto cadastrado" description="Cadastre o açaí, gelato, bebidas, complementos e embalagens que você deseja controlar." /> : (
-            <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Produto</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Saldo</th><th className="px-4 py-3">Venda</th><th className="px-4 py-3">Preço</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((p) => <tr key={p.id}><td className="px-4 py-3 font-medium">{p.name}<div className="mt-1">{Number(p.stock_qty) <= Number(p.low_stock_threshold) && <LowStockBadge />}</div></td><td className="px-4 py-3 text-muted-foreground">{p.category}</td><td className="px-4 py-3">{num(p.stock_qty, p.unit === "kg" ? 3 : 0)} {p.unit}</td><td className="px-4 py-3 text-muted-foreground">{p.sale_mode === "weight" ? "Peso" : p.sale_mode === "addon" ? (p.is_free_addon ? "Adicional grátis" : "Adicional") : "Unidade"}</td><td className="px-4 py-3">{brl(p.price)}</td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => startEdit(p)}>Editar</Button><Button size="sm" variant="ghost" className="text-destructive" onClick={() => deactivate(p)}>Desativar</Button></div></td></tr>)}</tbody></table></TableShell>
+          {isLoading ? <p className="text-sm text-muted-foreground">Carregando estoque…</p> : filtered.length === 0 ? <EmptyState title="Nenhum produto cadastrado" description="Cadastre bebidas, complementos e embalagens. A base Açaí + Gelato por peso é criada automaticamente pelo sistema." /> : (
+            <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Produto</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Saldo</th><th className="px-4 py-3">Venda</th><th className="px-4 py-3">Preço</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((p) => <tr key={p.id}><td className="px-4 py-3 font-medium">{p.name}<div className="mt-1">{Number(p.stock_qty) <= Number(p.low_stock_threshold) && <LowStockBadge />}</div></td><td className="px-4 py-3 text-muted-foreground">{p.category}</td><td className="px-4 py-3">{num(p.stock_qty, p.unit === "kg" ? 3 : 0)} {p.unit}</td><td className="px-4 py-3 text-muted-foreground">{p.sale_mode === "weight" ? "Peso · baixa automática" : p.sale_mode === "addon" ? (p.is_free_addon ? "Adicional grátis" : "Adicional") : "Unidade"}</td><td className="px-4 py-3">{brl(p.price)}</td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => startEdit(p)}>Editar</Button><Button size="sm" variant="ghost" className="text-destructive" onClick={() => deactivate(p)}>Desativar</Button></div></td></tr>)}</tbody></table></TableShell>
           )}
         </SectionCard>
 
         <SectionCard title="Movimentações recentes">
-          {movements.length === 0 ? <EmptyState title="Sem movimentações" description="As entradas, saídas, perdas e baixas automáticas de venda aparecerão aqui." /> : <div className="space-y-2">{movements.map((m: any) => <div key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-4 py-3 text-sm"><div><p className="font-medium">{m.products?.name ?? "Produto"}</p><p className="text-xs text-muted-foreground">{dateTimeBR(m.created_at)} · {m.reason || "Sem observação"}</p></div><div className={m.movement_type === "in" || m.movement_type === "adjustment" ? "text-success" : "text-destructive"}>{m.movement_type === "in" || m.movement_type === "adjustment" ? "+" : "-"}{num(m.quantity, 2)} {m.products?.unit ?? ""}</div></div>)}</div>}
+          {movements.length === 0 ? <EmptyState title="Sem movimentações" description="Compras, perdas, ajustes e baixas automáticas de venda aparecerão aqui." /> : <div className="space-y-2">{movements.map((m: any) => <div key={m.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-4 py-3 text-sm"><div><p className="font-medium">{m.products?.name ?? "Produto"}</p><p className="text-xs text-muted-foreground">{dateTimeBR(m.created_at)} · {m.reason || "Sem observação"}</p></div><div className={m.movement_type === "in" || m.movement_type === "adjustment" ? "text-success" : "text-destructive"}>{m.movement_type === "in" || m.movement_type === "adjustment" ? "+" : "-"}{num(m.quantity, 2)} {m.products?.unit ?? ""}</div></div>)}</div>}
         </SectionCard>
       </div>
     </AppLayout>
