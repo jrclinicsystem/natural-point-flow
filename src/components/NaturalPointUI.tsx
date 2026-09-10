@@ -145,7 +145,7 @@ export function LowStockBadge() {
 
 export function TableShell({ children }: { children: ReactNode }) {
   return (
-    <div className="np-table-shell -mx-1 overflow-x-auto overscroll-x-contain rounded-[18px] border border-border/80 bg-card shadow-[0_8px_24px_-22px_rgba(61,26,71,.28)] sm:mx-0 sm:rounded-[20px]">
+    <div className="np-table-shell -mx-1 overflow-x-auto overscroll-x-contain rounded-[18px] border border-border/80 bg-card shadow-[0_8px_24px_-22px_rgba(61,26,71,.28)] [scrollbar-width:thin] max-sm:[&_table]:min-w-[620px] max-sm:[&_th]:whitespace-nowrap max-sm:[&_th]:px-3 max-sm:[&_th]:py-2.5 max-sm:[&_td]:px-3 max-sm:[&_td]:py-2.5 max-sm:[&_td]:text-[12px] sm:mx-0 sm:rounded-[20px] sm:[&_table]:min-w-full">
       {children}
     </div>
   );
