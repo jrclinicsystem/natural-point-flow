@@ -213,7 +213,7 @@ function ComissoesPage() {
       const { error: rpcError } = await supabase.rpc("save_partner_split", {
         _partners: partners.map((partner) => ({
           id: partner.id,
-          partner_name: partnerNames[partner.id].trim(),
+          partner_name: (partnerNames[partner.id] ?? partner.partner_name).trim(),
           share_percent: 50,
           is_active: true,
         })),
