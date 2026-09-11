@@ -9,6 +9,7 @@ import {
   FileMinus,
   FileText,
   PieChart,
+  CircleDollarSign,
   Users,
   LogOut,
   Bell,
@@ -40,8 +41,8 @@ const NAV: NavItem[] = [
   { to: "/contas-a-receber", label: "Contas a receber", icon: FileText, group: "financeiro" },
   { to: "/despesas", label: "Despesas", icon: FileMinus, managerOnly: true, group: "financeiro" },
   { to: "/contas-a-pagar", label: "Contas a pagar", icon: Receipt, managerOnly: true, group: "financeiro" },
+  { to: "/comissoes", label: "Comissões", icon: CircleDollarSign, managerOnly: true, group: "financeiro" },
   { to: "/relatorios", label: "Relatórios", icon: PieChart, managerOnly: true, group: "gestao" },
-  { to: "/socios", label: "Lucro dos sócios", icon: PieChart, managerOnly: true, group: "gestao" },
   { to: "/usuarios", label: "Usuários e acessos", icon: Users, managerOnly: true, group: "gestao" },
 ];
 
