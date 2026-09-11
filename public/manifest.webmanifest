@@ -1,0 +1,24 @@
+{
+  "name": "Natural Point",
+  "short_name": "Natural Point",
+  "description": "Gestão financeira e operacional da Natural Point",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F4E5D0",
+  "theme_color": "#4B102F",
+  "icons": [
+    {
+      "src": "/icon-192.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}
