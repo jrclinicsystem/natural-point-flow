@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Applies a resilient multi-keyword search to the PDV product list.
 path = Path('src/routes/vendas.tsx')
 text = path.read_text()
 
