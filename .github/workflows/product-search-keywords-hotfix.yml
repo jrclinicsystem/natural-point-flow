@@ -1,0 +1,39 @@
+name: Product keyword search hotfix
+
+on:
+  push:
+    paths:
+      - '.github/scripts/product_search_keywords_patch.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - name: Apply search patch
+        run: python .github/scripts/product_search_keywords_patch.py
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Typecheck
+        run: bunx tsc --noEmit
+      - name: Production build
+        run: bun run build
+      - name: Commit search improvements
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/routes/vendas.tsx
+          if git diff --cached --quiet; then
+            echo "No source changes to commit"
+            exit 0
+          fi
+          git commit -m "sales: improve product keyword search"
+          git push origin main
