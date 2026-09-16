@@ -82,8 +82,21 @@ function VendasPage() {
   const fiadoAmount = fiadoMethod ? parseNumber(payments[fiadoMethod.id] ?? "0") : 0;
 
   const filteredProducts = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return sellableProducts.filter((p) => !q || `${p.name} ${p.category}`.toLowerCase().includes(q));
+    const normalize = (value: string) =>
+      value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLowerCase()
+        .trim();
+
+    const terms = normalize(search).split(/\s+/).filter(Boolean);
+    if (!terms.length) return sellableProducts;
+
+    return sellableProducts.filter((p) => {
+      const saleModeLabel = p.sale_mode === "addon" ? "adicional complemento" : "unidade unitario produto";
+      const haystack = normalize(`${p.name} ${p.category} ${p.unit} ${saleModeLabel}`);
+      return terms.every((term) => haystack.includes(term));
+    });
   }, [sellableProducts, search]);
 
   const addProduct = (p: Product) => {
