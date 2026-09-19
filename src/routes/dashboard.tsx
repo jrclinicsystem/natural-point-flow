@@ -94,7 +94,7 @@ function DashboardPage() {
       const requests: any[] = [
         supabase.rpc("dashboard_summary", { _from: monthStart, _to: today }),
         supabase.from("sales").select("id,sold_at,total,customer_name,status").gte("sold_at", `${monthStart}T00:00:00`).order("sold_at", { ascending: false }),
-        supabase.from("products").select("id,name,category,unit,stock_qty,low_stock_threshold").eq("is_active", true).order("stock_qty", { ascending: true }),
+        supabase.from("products").select("id,name,category,sale_mode,unit,stock_qty,low_stock_threshold,package_count,package_volume_l").eq("is_active", true).order("stock_qty", { ascending: true }),
         supabase.from("accounts_receivable").select("id,customer_name,amount,due_date,status,paid_at").order("created_at", { ascending: false }).limit(10),
         supabase.from("cash_sessions").select("id,status,opened_at,opening_cash,difference").order("opened_at", { ascending: false }).limit(3),
       ];
@@ -110,7 +110,8 @@ function DashboardPage() {
   const metrics = Object.fromEntries((data?.summary ?? []).map((r: any) => [r.metric, Number(r.value)]));
   const sales = data?.sales ?? [];
   const expenses = data?.expenses ?? [];
-  const lowStock = (data?.products ?? []).filter((p: any) => Number(p.stock_qty) <= Number(p.low_stock_threshold));
+  const lowStock = (data?.products ?? []).filter((p: any) => p.sale_mode !== "weight" && Number(p.stock_qty) <= Number(p.low_stock_threshold));
+  const weightBase = (data?.products ?? []).find((p: any) => p.sale_mode === "weight");
   const openCash = (data?.cash ?? []).find((c: any) => c.status === "open");
   const pendingReceivables = (data?.receivables ?? []).filter((r: any) => r.status === "pending").length;
 
@@ -190,7 +191,8 @@ function DashboardPage() {
                 <h3 className="mt-1 font-display text-xl">Situação da loja</h3>
               </div>
               <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-1">
-                <CompactMetric label="Estoque baixo" value={String(lowStock.length)} hint="itens no limite" icon={Boxes} alert={lowStock.length > 0} />
+                <CompactMetric label="Estoque baixo" value={String(lowStock.length)} hint="produtos por unidade" icon={Boxes} alert={lowStock.length > 0} />
+                {weightBase && <CompactMetric label="Açaí + Gelato" value={`${weightBase.package_count ?? 0} potes`} hint={`${Number(weightBase.package_volume_l ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} L cada · manual`} icon={Boxes} />}
                 <CompactMetric label="Fiados pendentes" value={String(pendingReceivables)} hint="a receber" icon={Clock3} alert={pendingReceivables > 0} />
                 {!isManager && <CompactMetric label="Caixa" value={openCash ? "Aberto" : "Fechado"} icon={Wallet} />}
               </div>
