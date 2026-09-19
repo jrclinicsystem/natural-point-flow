@@ -114,8 +114,68 @@ function CaixaPage() {
           </SectionCard>
         </div>
 
+        {latestClosed ? (
+          <SectionCard
+            title="Resultado do último fechamento"
+            description={`Fechado em ${dateTimeBR(latestClosed.closed_at)} · referência ${latestClosed.business_date ? latestClosed.business_date.split("-").reverse().join("/") : "-"}`}
+          >
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-border bg-muted/35 p-4">
+                <p className="text-xs text-muted-foreground">Valor inicial</p>
+                <p className="mt-1 font-display text-xl">{brl(latestClosed.opening_cash)}</p>
+              </div>
+              <div className="rounded-2xl border border-border bg-muted/35 p-4">
+                <p className="text-xs text-muted-foreground">Esperado</p>
+                <p className="mt-1 font-display text-xl">{brl(latestClosed.expected_cash)}</p>
+              </div>
+              <div className="rounded-2xl border border-border bg-muted/35 p-4">
+                <p className="text-xs text-muted-foreground">Contado</p>
+                <p className="mt-1 font-display text-xl">{brl(latestClosed.counted_cash)}</p>
+              </div>
+              <div className={`rounded-2xl border p-4 ${Math.abs(Number(latestClosed.difference ?? 0)) < 0.01 ? "border-success/25 bg-success/5" : "border-destructive/25 bg-destructive/5"}`}>
+                <p className="text-xs text-muted-foreground">Diferença</p>
+                <p className={`mt-1 font-display text-xl ${Math.abs(Number(latestClosed.difference ?? 0)) < 0.01 ? "text-success" : "text-destructive"}`}>
+                  {brl(latestClosed.difference)}
+                </p>
+              </div>
+            </div>
+            {latestClosed.notes ? <p className="mt-3 rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">Observação: {latestClosed.notes}</p> : null}
+          </SectionCard>
+        ) : null}
+
         <SectionCard title="Movimentações em dinheiro de hoje" description="Entradas e saídas que alteram o dinheiro físico do caixa.">
           {isLoading ? <p className="text-sm text-muted-foreground">Carregando…</p> : movements.length === 0 ? <EmptyState title="Sem movimentações em dinheiro" description="Vendas em dinheiro, recebimentos de fiado em dinheiro e despesas pagas em dinheiro aparecerão aqui." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Horário</th><th className="px-4 py-3">Movimento</th><th className="px-4 py-3 text-right">Valor</th></tr></thead><tbody className="divide-y divide-border">{movements.map((m) => <tr key={m.id}><td className="px-4 py-3 text-muted-foreground">{dateTimeBR(m.date)}</td><td className="px-4 py-3">{m.label}</td><td className={`px-4 py-3 text-right font-medium ${m.type === "in" ? "text-success" : "text-destructive"}`}>{m.type === "in" ? "+" : "-"}{brl(m.amount)}</td></tr>)}</tbody></table></TableShell>}
+        </SectionCard>
+
+        <SectionCard title="Histórico de fechamentos" description="Resultado dos caixas anteriores, incluindo esperado, contado e diferença.">
+          {sessions.filter((s: any) => s.status === "closed").length === 0 ? (
+            <EmptyState title="Nenhum caixa fechado" description="Assim que um caixa for fechado, o resultado ficará salvo aqui." />
+          ) : (
+            <TableShell>
+              <table className="min-w-full text-sm">
+                <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3">Data</th>
+                    <th className="px-4 py-3">Inicial</th>
+                    <th className="px-4 py-3">Esperado</th>
+                    <th className="px-4 py-3">Contado</th>
+                    <th className="px-4 py-3">Diferença</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {sessions.filter((s: any) => s.status === "closed").map((s: any) => (
+                    <tr key={s.id}>
+                      <td className="px-4 py-3">{s.business_date ? s.business_date.split("-").reverse().join("/") : dateTimeBR(s.closed_at)}</td>
+                      <td className="px-4 py-3">{brl(s.opening_cash)}</td>
+                      <td className="px-4 py-3">{brl(s.expected_cash)}</td>
+                      <td className="px-4 py-3">{brl(s.counted_cash)}</td>
+                      <td className={`px-4 py-3 font-medium ${Math.abs(Number(s.difference ?? 0)) < 0.01 ? "text-success" : "text-destructive"}`}>{brl(s.difference)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableShell>
+          )}
         </SectionCard>
       </div>
     </AppLayout>
