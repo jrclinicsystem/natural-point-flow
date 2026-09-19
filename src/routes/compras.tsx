@@ -21,6 +21,8 @@ type Product = {
   unit: string;
   sale_mode: "weight" | "unit" | "addon";
   stock_qty: number;
+  package_count: number;
+  package_volume_l: number;
   cost: number;
   is_active: boolean;
 };
@@ -29,6 +31,7 @@ type PurchaseItem = {
   productId: string;
   label: string;
   unit: string;
+  saleMode: "weight" | "unit" | "addon";
   quantity: number;
   unitCost: number;
 };
@@ -50,11 +53,11 @@ function ComprasPage() {
     queryKey: ["np-purchases"],
     queryFn: async () => {
       const [products, methods, purchases] = await Promise.all([
-        supabase.from("products").select("id,name,unit,sale_mode,stock_qty,cost,is_active").eq("is_active", true).order("name"),
+        supabase.from("products").select("id,name,unit,sale_mode,stock_qty,package_count,package_volume_l,cost,is_active").eq("is_active", true).order("name"),
         supabase.from("payment_methods").select("id,name,kind,is_active").eq("is_active", true).neq("kind", "credit_account").order("sort_order"),
         supabase
           .from("purchases")
-          .select("id,supplier,purchase_date,due_date,total,status,created_at,payment_methods(name),purchase_items(quantity,unit_cost,total,products(name,unit))")
+          .select("id,supplier,purchase_date,due_date,total,status,created_at,payment_methods(name),purchase_items(quantity,unit_cost,total,products(name,unit,sale_mode,package_volume_l))")
           .order("purchase_date", { ascending: false })
           .order("created_at", { ascending: false })
           .limit(50),
@@ -87,10 +90,16 @@ function ComprasPage() {
     if (cost < 0) { toast.error("Informe um custo unitário válido."); return; }
     if (cost === 0) { toast.error("Informe o custo unitário da compra."); return; }
 
+    if (selected.sale_mode === "weight" && qty !== Math.trunc(qty)) {
+      toast.error("Para Açaí + Gelato, informe a quantidade de potes inteiros.");
+      return;
+    }
+
     setItems((current) => [...current, {
       productId: selected.id,
       label: selected.name,
-      unit: selected.unit,
+      unit: selected.sale_mode === "weight" ? "potes" : selected.unit,
+      saleMode: selected.sale_mode,
       quantity: qty,
       unitCost: cost,
     }]);
@@ -156,7 +165,7 @@ function ComprasPage() {
 
         <SectionCard
           title="Registrar compra"
-          description="Ao salvar, o sistema dá entrada no estoque, recalcula o custo médio e gera automaticamente a despesa ou conta a pagar."
+          description="Ao salvar, produtos comuns entram no estoque por unidade. Para Açaí + Gelato, informe quantos potes foram comprados; o sistema acrescenta os potes ao controle manual e registra normalmente o financeiro."
         >
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <Field label="Fornecedor"><Input value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="Ex.: Distribuidora Natural" /></Field>
@@ -173,24 +182,24 @@ function ComprasPage() {
           <div className="mt-5 rounded-2xl border border-border bg-muted/20 p-4">
             <p className="mb-3 text-sm font-medium">Adicionar item</p>
             <div className="grid gap-3 md:grid-cols-[1.5fr_1fr_1fr_auto]">
-              <Field label="Produto"><NativeSelect value={selectedProduct} onChange={setSelectedProduct}><option value="">Selecione</option>{products.map((p) => <option key={p.id} value={p.id}>{p.name} · saldo {num(p.stock_qty, p.unit === "kg" ? 3 : 0)} {p.unit}</option>)}</NativeSelect></Field>
-              <Field label={`Quantidade${selected ? ` (${selected.unit})` : ""}`}><Input inputMode="decimal" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="0" /></Field>
-              <Field label={`Custo por ${selected?.unit || "unidade"}`}><Input inputMode="decimal" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder={selected?.cost ? String(selected.cost).replace(".", ",") : "0,00"} /></Field>
+              <Field label="Produto"><NativeSelect value={selectedProduct} onChange={setSelectedProduct}><option value="">Selecione</option>{products.map((p) => <option key={p.id} value={p.id}>{p.sale_mode === "weight" ? `${p.name} · ${p.package_count ?? 0} potes de ${num(p.package_volume_l ?? 0, 1)} L` : `${p.name} · saldo ${num(p.stock_qty, 0)} ${p.unit}`}</option>)}</NativeSelect></Field>
+              <Field label={selected?.sale_mode === "weight" ? "Quantidade (potes)" : `Quantidade${selected ? ` (${selected.unit})` : ""}`}><Input inputMode={selected?.sale_mode === "weight" ? "numeric" : "decimal"} value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="0" /></Field>
+              <Field label={selected?.sale_mode === "weight" ? "Custo por pote" : `Custo por ${selected?.unit || "unidade"}`}><Input inputMode="decimal" value={unitCost} onChange={(e) => setUnitCost(e.target.value)} placeholder={selected?.cost ? String(selected.cost).replace(".", ",") : "0,00"} /></Field>
               <Button className="self-end" variant="outline" onClick={addItem}><Plus className="mr-2 h-4 w-4" />Adicionar</Button>
             </div>
           </div>
 
           {items.length > 0 && (
             <div className="mt-4">
-              <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Produto</th><th className="px-4 py-3">Quantidade</th><th className="px-4 py-3">Custo unitário</th><th className="px-4 py-3">Total</th><th className="px-4 py-3 text-right"></th></tr></thead><tbody className="divide-y divide-border">{items.map((item) => <tr key={item.productId}><td className="px-4 py-3 font-medium">{item.label}</td><td className="px-4 py-3">{num(item.quantity, item.unit === "kg" ? 3 : 0)} {item.unit}</td><td className="px-4 py-3">{brl(item.unitCost)}</td><td className="px-4 py-3 font-medium">{brl(item.quantity * item.unitCost)}</td><td className="px-4 py-3 text-right"><Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeItem(item.productId)}><Trash2 className="h-4 w-4" /></Button></td></tr>)}</tbody></table></TableShell>
-              <div className="mt-4"><Field label="Observações"><TextArea value={notes} onChange={setNotes} placeholder="Ex.: 10 kg de açaí + 5 kg de gelato, nota fiscal 123..." /></Field></div>
+              <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Produto</th><th className="px-4 py-3">Quantidade</th><th className="px-4 py-3">Custo unitário</th><th className="px-4 py-3">Total</th><th className="px-4 py-3 text-right"></th></tr></thead><tbody className="divide-y divide-border">{items.map((item) => <tr key={item.productId}><td className="px-4 py-3 font-medium">{item.label}</td><td className="px-4 py-3">{num(item.quantity, item.saleMode === "weight" ? 0 : item.unit === "kg" ? 3 : 0)} {item.unit}</td><td className="px-4 py-3">{brl(item.unitCost)}</td><td className="px-4 py-3 font-medium">{brl(item.quantity * item.unitCost)}</td><td className="px-4 py-3 text-right"><Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeItem(item.productId)}><Trash2 className="h-4 w-4" /></Button></td></tr>)}</tbody></table></TableShell>
+              <div className="mt-4"><Field label="Observações"><TextArea value={notes} onChange={setNotes} placeholder="Ex.: 10 potes de Açaí + Gelato, nota fiscal 123..." /></Field></div>
               <Button className="mt-4" disabled={registerPurchase.isPending || total <= 0} onClick={() => registerPurchase.mutate()}><ShoppingBasket className="mr-2 h-4 w-4" />{registerPurchase.isPending ? "Registrando…" : "Registrar compra"}</Button>
             </div>
           )}
         </SectionCard>
 
         <SectionCard title="Histórico de compras">
-          {isLoading ? <p className="text-sm text-muted-foreground">Carregando…</p> : purchases.length === 0 ? <EmptyState title="Nenhuma compra registrada" description="As compras de estoque aparecerão aqui com vínculo ao financeiro." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Data</th><th className="px-4 py-3">Fornecedor</th><th className="px-4 py-3">Itens</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Financeiro</th></tr></thead><tbody className="divide-y divide-border">{purchases.map((purchase: any) => <tr key={purchase.id}><td className="px-4 py-3">{dateBR(purchase.purchase_date)}</td><td className="px-4 py-3 font-medium">{purchase.supplier}</td><td className="px-4 py-3 text-muted-foreground">{(purchase.purchase_items ?? []).map((item: any) => `${item.products?.name ?? "Produto"} · ${num(item.quantity, item.products?.unit === "kg" ? 3 : 0)} ${item.products?.unit ?? ""}`).join("; ")}</td><td className="px-4 py-3 font-medium">{brl(purchase.total)}</td><td className="px-4 py-3"><StatusPill status={purchase.status} overdue={purchase.status === "pending" && !!purchase.due_date && purchase.due_date < todayISO()} /></td></tr>)}</tbody></table></TableShell>}
+          {isLoading ? <p className="text-sm text-muted-foreground">Carregando…</p> : purchases.length === 0 ? <EmptyState title="Nenhuma compra registrada" description="As compras de estoque aparecerão aqui com vínculo ao financeiro." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Data</th><th className="px-4 py-3">Fornecedor</th><th className="px-4 py-3">Itens</th><th className="px-4 py-3">Total</th><th className="px-4 py-3">Financeiro</th></tr></thead><tbody className="divide-y divide-border">{purchases.map((purchase: any) => <tr key={purchase.id}><td className="px-4 py-3">{dateBR(purchase.purchase_date)}</td><td className="px-4 py-3 font-medium">{purchase.supplier}</td><td className="px-4 py-3 text-muted-foreground">{(purchase.purchase_items ?? []).map((item: any) => item.products?.sale_mode === "weight" ? `${item.products?.name ?? "Açaí + Gelato"} · ${num(item.quantity, 0)} potes` : `${item.products?.name ?? "Produto"} · ${num(item.quantity, item.products?.unit === "kg" ? 3 : 0)} ${item.products?.unit ?? ""}`).join("; ")}</td><td className="px-4 py-3 font-medium">{brl(purchase.total)}</td><td className="px-4 py-3"><StatusPill status={purchase.status} overdue={purchase.status === "pending" && !!purchase.due_date && purchase.due_date < todayISO()} /></td></tr>)}</tbody></table></TableShell>}
         </SectionCard>
       </div>
     </AppLayout>
