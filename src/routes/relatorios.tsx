@@ -18,21 +18,45 @@ export const Route = createFileRoute("/relatorios")({
 function RelatoriosPage() {
   const [from, setFrom] = useState(monthStartISO());
   const [to, setTo] = useState(todayISO());
+  const [period, setPeriod] = useState<"today" | "30d" | "month" | "year" | "custom">("month");
+
+  const applyPeriod = (next: "today" | "30d" | "month" | "year") => {
+    const today = todayISO();
+    setPeriod(next);
+    setTo(today);
+    if (next === "today") {
+      setFrom(today);
+      return;
+    }
+    if (next === "month") {
+      setFrom(today.slice(0, 7) + "-01");
+      return;
+    }
+    if (next === "year") {
+      setFrom(today.slice(0, 4) + "-01-01");
+      return;
+    }
+    const date = new Date(today + "T12:00:00");
+    date.setDate(date.getDate() - 29);
+    setFrom(date.toISOString().slice(0, 10));
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["np-reports", from, to],
     queryFn: async () => {
-      const [summary, sales, expenses, payments] = await Promise.all([
+      const [summary, sales, expenses, payments, cashSessions] = await Promise.all([
         supabase.rpc("dashboard_summary", { _from: from, _to: to }),
         supabase.from("sales").select("id,sold_at,total,status,customer_name").gte("sold_at", `${from}T00:00:00`).lte("sold_at", `${to}T23:59:59`).order("sold_at"),
         supabase.from("expenses").select("id,expense_date,description,amount,status,expense_categories(name)").gte("expense_date", from).lte("expense_date", to).order("expense_date"),
         supabase.from("sale_payments").select("amount,fee_amount,net_amount,created_at,payment_methods(name,kind)").gte("created_at", `${from}T00:00:00`).lte("created_at", `${to}T23:59:59`),
+        supabase.from("cash_sessions").select("*").gte("business_date", from).lte("business_date", to).order("business_date", { ascending: false }),
       ]);
       if (summary.error) throw summary.error;
       if (sales.error) throw sales.error;
       if (expenses.error) throw expenses.error;
       if (payments.error) throw payments.error;
-      return { summary: summary.data ?? [], sales: sales.data ?? [], expenses: expenses.data ?? [], payments: payments.data ?? [] };
+      if (cashSessions.error) throw cashSessions.error;
+      return { summary: summary.data ?? [], sales: sales.data ?? [], expenses: expenses.data ?? [], payments: payments.data ?? [], cashSessions: cashSessions.data ?? [] };
     },
   });
 
@@ -90,8 +114,26 @@ function RelatoriosPage() {
   return (
     <AppLayout managerOnly title="Relatórios" subtitle="Vendas, recebimentos, despesas e resultado por período" actions={<Button size="sm" variant="outline" onClick={exportCsv} disabled={!data}><Download className="mr-2 h-4 w-4" /> Exportar CSV</Button>}>
       <div className="space-y-6">
-        <SectionCard title="Período">
-          <div className="grid max-w-xl gap-4 sm:grid-cols-2"><Field label="De"><Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></Field><Field label="Até"><Input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></Field></div>
+        <SectionCard title="Período" description="Use um atalho ou escolha um intervalo personalizado.">
+          <div className="mb-4 flex flex-wrap gap-2">
+            {([
+              ["today", "Hoje"],
+              ["30d", "30 dias"],
+              ["month", "Mês"],
+              ["year", "Ano"],
+            ] as const).map(([value, label]) => (
+              <Button key={value} type="button" size="sm" variant={period === value ? "default" : "outline"} onClick={() => applyPeriod(value)}>
+                {label}
+              </Button>
+            ))}
+            <Button type="button" size="sm" variant={period === "custom" ? "default" : "outline"} onClick={() => setPeriod("custom")}>
+              Personalizado
+            </Button>
+          </div>
+          <div className="grid max-w-xl gap-4 sm:grid-cols-2">
+            <Field label="De"><Input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPeriod("custom"); }} /></Field>
+            <Field label="Até"><Input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPeriod("custom"); }} /></Field>
+          </div>
         </SectionCard>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
@@ -108,6 +150,38 @@ function RelatoriosPage() {
 
         <SectionCard title="Recebimentos por forma de pagamento" description="O valor líquido já considera a taxa configurada em cada forma de pagamento.">
           <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Forma</th><th className="px-4 py-3">Bruto</th><th className="px-4 py-3">Taxas</th><th className="px-4 py-3">Líquido</th></tr></thead><tbody className="divide-y divide-border">{byMethod.map((r) => <tr key={r.name}><td className="px-4 py-3 font-medium">{r.name}</td><td className="px-4 py-3">{brl(r.gross)}</td><td className="px-4 py-3 text-destructive">{brl(r.fees)}</td><td className="px-4 py-3 text-success">{brl(r.net)}</td></tr>)}{byMethod.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">Sem recebimentos no período.</td></tr>}</tbody></table></TableShell>
+        </SectionCard>
+
+        <SectionCard title="Fechamentos de caixa" description="Conferência do dinheiro físico em cada caixa do período selecionado.">
+          <TableShell>
+            <table className="min-w-full text-sm">
+              <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3">Data</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Inicial</th>
+                  <th className="px-4 py-3">Esperado</th>
+                  <th className="px-4 py-3">Contado</th>
+                  <th className="px-4 py-3">Diferença</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {(data?.cashSessions ?? []).map((row: any) => (
+                  <tr key={row.id}>
+                    <td className="px-4 py-3">{dateBR(row.business_date)}</td>
+                    <td className="px-4 py-3">{row.status === "closed" ? "Fechado" : "Aberto"}</td>
+                    <td className="px-4 py-3">{brl(row.opening_cash)}</td>
+                    <td className="px-4 py-3">{brl(row.expected_cash)}</td>
+                    <td className="px-4 py-3">{row.counted_cash == null ? "-" : brl(row.counted_cash)}</td>
+                    <td className={`px-4 py-3 font-medium ${row.status === "closed" && Math.abs(Number(row.difference ?? 0)) >= 0.01 ? "text-destructive" : "text-success"}`}>
+                      {row.status === "closed" ? brl(row.difference) : "-"}
+                    </td>
+                  </tr>
+                ))}
+                {(data?.cashSessions ?? []).length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Nenhum caixa encontrado no período.</td></tr>}
+              </tbody>
+            </table>
+          </TableShell>
         </SectionCard>
       </div>
     </AppLayout>
