@@ -24,6 +24,8 @@ type Product = {
   unit: string;
   price: number;
   stock_qty: number;
+  package_count: number;
+  package_volume_l: number;
   is_free_addon: boolean;
   is_active: boolean;
 };
@@ -66,7 +68,6 @@ function VendasPage() {
   const weightProduct = weightProducts[0];
   const sellableProducts = products.filter((p) => p.sale_mode === "unit" || p.sale_mode === "addon");
   const configuredPricePerKg = Number(weightProduct?.price ?? 0);
-  const weightStockKg = Number(weightProduct?.stock_qty ?? 0);
 
   useEffect(() => {
     if (!pricePerKg && configuredPricePerKg > 0) setPricePerKg(String(configuredPricePerKg));
@@ -139,7 +140,6 @@ function VendasPage() {
     mutationFn: async () => {
       if (total <= 0) throw new Error("Adicione o peso ou algum produto à venda.");
       if (grams > 0 && !weightProduct) throw new Error("A base Açaí + Gelato não está configurada no estoque.");
-      if (grams > 0 && kg > weightStockKg + 0.0005) throw new Error(`Estoque insuficiente de Açaí + Gelato. Disponível: ${weightStockKg.toLocaleString("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} kg.`);
       if (grams > 0 && pricePerKgAmount <= 0) throw new Error("O preço por kg precisa ser maior que zero.");
       if (discountMode === "percent" && discountValue > 100) throw new Error("O desconto percentual não pode ser maior que 100%.");
       if (discountAmount > subtotal) throw new Error("O desconto não pode ser maior que o subtotal da venda.");
@@ -201,7 +201,7 @@ function VendasPage() {
     <AppLayout title="Vendas" subtitle="PDV rápido: açaí + gelato por peso, adicionais e produtos por unidade">
       <div className="grid gap-4 sm:gap-6 xl:grid-cols-[1fr_360px]">
         <div className="space-y-4 sm:space-y-6">
-          <SectionCard title="Açaí + gelato por peso" description={weightProduct ? `Informe o peso total em gramas. Estoque disponível: ${weightStockKg.toLocaleString("pt-BR", { minimumFractionDigits: 3, maximumFractionDigits: 3 })} kg.` : "A base Açaí + Gelato precisa ser configurada em Estoque antes da primeira venda."}>
+          <SectionCard title="Açaí + gelato por peso" description={weightProduct ? `Informe o peso total em gramas. Controle informativo: ${weightProduct.package_count ?? 0} potes de ${Number(weightProduct.package_volume_l ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} L. As vendas não são bloqueadas por esse controle.` : "A base Açaí + Gelato precisa ser configurada em Estoque antes da primeira venda."}>
             <div className="grid gap-3 md:grid-cols-3 md:gap-4">
               <Field label="Peso total (gramas)"><Input inputMode="decimal" value={weightGrams} onChange={(e) => setWeightGrams(e.target.value)} placeholder="Ex.: 500" /></Field>
               <Field label={`Preço por kg${isManager ? "" : " · definido pelo cadastro"}`}><Input inputMode="decimal" value={pricePerKg} onChange={(e) => setPricePerKg(e.target.value)} placeholder="Ex.: 59,90" disabled={!isManager} /></Field>
