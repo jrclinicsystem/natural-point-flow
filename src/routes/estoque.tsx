@@ -25,6 +25,8 @@ type Product = {
   cost: number;
   stock_qty: number;
   low_stock_threshold: number;
+  package_count: number;
+  package_volume_l: number;
   is_free_addon: boolean;
   is_active: boolean;
 };
@@ -38,6 +40,8 @@ const emptyProduct = {
   cost: "",
   low: "",
   initial: "",
+  packageCount: "",
+  packageVolume: "",
   free: false,
 };
 
@@ -79,8 +83,8 @@ function EstoquePage() {
     const q = search.trim().toLowerCase();
     return products.filter((p) => p.is_active && (!q || `${p.name} ${p.category}`.toLowerCase().includes(q)));
   }, [products, search]);
-  const low = products.filter((p) => p.is_active && Number(p.stock_qty) <= Number(p.low_stock_threshold));
-  const stockCost = products.reduce((acc, p) => acc + Number(p.stock_qty) * Number(p.cost), 0);
+  const low = products.filter((p) => p.is_active && p.sale_mode !== "weight" && Number(p.stock_qty) <= Number(p.low_stock_threshold));
+  const stockCost = products.filter((p) => p.sale_mode !== "weight").reduce((acc, p) => acc + Number(p.stock_qty) * Number(p.cost), 0);
   const editingProduct = editingId ? products.find((p) => p.id === editingId) ?? null : null;
   const editingWeightBase = editingProduct?.sale_mode === "weight";
 
@@ -108,24 +112,19 @@ function EstoquePage() {
       let id = editingId;
       if (editingId) {
         const safePayload = editingWeightBase
-          ? { ...payload, name: editingProduct?.name ?? "Açaí + Gelato", sale_mode: "weight", unit: "kg" }
+          ? {
+              ...payload,
+              name: editingProduct?.name ?? "Açaí + Gelato",
+              sale_mode: "weight",
+              unit: "kg",
+              low_stock_threshold: 0,
+              package_count: Math.max(0, Math.floor(parseNumber(product.packageCount))),
+              package_volume_l: Math.max(0, parseNumber(product.packageVolume)),
+            }
           : payload;
         const { error } = await supabase.from("products").update(safePayload).eq("id", editingId);
         if (error) throw error;
 
-        if (editingWeightBase) {
-          const desiredStock = parseNumber(product.initial);
-          const currentStock = Number(editingProduct?.stock_qty ?? 0);
-          if (desiredStock < 0) throw new Error("O estoque atual não pode ser negativo.");
-          if (Math.abs(desiredStock - currentStock) > 0.0005) {
-            const { error: stockError } = await supabase.rpc("adjust_inventory", {
-              _product_id: editingId,
-              _new_quantity: desiredStock,
-              _reason: "Atualização do estoque da base Açaí + Gelato",
-            });
-            if (stockError) throw stockError;
-          }
-        }
       } else {
         const { data, error } = await supabase.from("products").insert({ ...payload, stock_qty: 0 }).select("id").single();
         if (error) throw error;
@@ -201,7 +200,9 @@ function EstoquePage() {
       price: String(p.price ?? ""),
       cost: String(p.cost ?? ""),
       low: String(p.low_stock_threshold ?? ""),
-      initial: p.sale_mode === "weight" ? String(p.stock_qty ?? 0) : "",
+      initial: "",
+      packageCount: p.sale_mode === "weight" ? String(p.package_count ?? 0) : "",
+      packageVolume: p.sale_mode === "weight" ? String(p.package_volume_l ?? 0) : "",
       free: Boolean(p.is_free_addon),
     });
     setShowProductForm(true);
@@ -230,16 +231,18 @@ function EstoquePage() {
         </div>
 
         {showProductForm && (
-          <SectionCard title={editingId ? "Editar produto" : "Cadastrar produto"} description={editingWeightBase ? "A base Açaí + Gelato é protegida: informe o preço por kg e o estoque atual em kg. Nome, tipo e unidade não podem ser alterados." : "Use por peso somente para a base Açaí + Gelato; unidade para bebidas/embalagens e adicional para complementos."}>
+          <SectionCard title={editingId ? "Editar produto" : "Cadastrar produto"} description={editingWeightBase ? "A venda continua por gramas/kg, mas o estoque do açaí é apenas informativo em potes. Atualize manualmente a quantidade de potes quando necessário." : "Cadastre aqui produtos por unidade e complementos. A base Açaí + Gelato já possui um cadastro protegido separado."}>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <Field label="Nome"><Input value={product.name} onChange={(e) => setProduct({ ...product, name: e.target.value })} placeholder="Ex.: Água de coco" disabled={editingWeightBase} /></Field>
               <Field label="Categoria"><Input value={product.category} onChange={(e) => setProduct({ ...product, category: e.target.value })} placeholder="Bebidas, Complementos..." disabled={editingWeightBase} /></Field>
-              <Field label="Tipo de venda"><NativeSelect value={product.sale_mode} onChange={(v) => setProduct({ ...product, sale_mode: v })} disabled={editingWeightBase}><option value="unit">Por unidade</option><option value="weight">Por peso</option><option value="addon">Adicional/complemento</option></NativeSelect></Field>
+              <Field label="Tipo de venda"><NativeSelect value={product.sale_mode} onChange={(v) => setProduct({ ...product, sale_mode: v })} disabled={editingWeightBase}><option value="unit">Por unidade</option><option value="weight" disabled={!editingWeightBase}>Por peso · reservado ao Açaí + Gelato</option><option value="addon">Adicional/complemento</option></NativeSelect></Field>
               <Field label="Unidade"><NativeSelect value={product.unit} onChange={(v) => setProduct({ ...product, unit: v })} disabled={editingWeightBase}><option value="un">un</option><option value="kg">kg</option><option value="g">g</option><option value="L">L</option><option value="ml">ml</option></NativeSelect></Field>
               <Field label="Preço de venda"><Input value={product.price} onChange={(e) => setProduct({ ...product, price: e.target.value })} placeholder="0,00" /></Field>
               <Field label="Custo unitário"><Input value={product.cost} onChange={(e) => setProduct({ ...product, cost: e.target.value })} placeholder="0,00" /></Field>
-              <Field label="Alerta quando chegar em"><Input value={product.low} onChange={(e) => setProduct({ ...product, low: e.target.value })} placeholder="5" /></Field>
-              {(!editingId || editingWeightBase) && <Field label={editingWeightBase ? "Estoque atual (kg)" : "Estoque inicial"}><Input inputMode="decimal" value={product.initial} onChange={(e) => setProduct({ ...product, initial: e.target.value })} placeholder={editingWeightBase ? "Ex.: 12,500" : "0"} /></Field>}
+              {!editingWeightBase && <Field label="Alerta quando chegar em"><Input value={product.low} onChange={(e) => setProduct({ ...product, low: e.target.value })} placeholder="5" /></Field>}
+              {!editingId && !editingWeightBase && <Field label="Estoque inicial"><Input value={product.initial} onChange={(e) => setProduct({ ...product, initial: e.target.value })} placeholder="0" /></Field>}
+              {editingWeightBase && <Field label="Potes disponíveis"><Input inputMode="numeric" value={product.packageCount} onChange={(e) => setProduct({ ...product, packageCount: e.target.value })} placeholder="Ex.: 32" /></Field>}
+              {editingWeightBase && <Field label="Volume por pote (L)"><Input inputMode="decimal" value={product.packageVolume} onChange={(e) => setProduct({ ...product, packageVolume: e.target.value })} placeholder="Ex.: 4,5" /></Field>}
               {product.sale_mode === "addon" && (
                 <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" checked={product.free} onChange={(e) => setProduct({ ...product, free: e.target.checked })} /> Complemento gratuito</label>
               )}
@@ -248,9 +251,9 @@ function EstoquePage() {
           </SectionCard>
         )}
 
-        <SectionCard title="Ajustes de estoque" description="Use somente para perdas, saídas excepcionais e correção de saldo. Entradas de fornecedor devem ser feitas em Compras para gerar o financeiro automaticamente.">
+        <SectionCard title="Ajustes de estoque" description="Use para produtos controlados por unidade. O Açaí + Gelato é controlado manualmente em potes pelo botão Editar do próprio cadastro.">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <Field label="Produto"><NativeSelect value={movementProduct} onChange={setMovementProduct}><option value="">Selecione</option>{products.filter((p) => p.is_active).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</NativeSelect></Field>
+            <Field label="Produto"><NativeSelect value={movementProduct} onChange={setMovementProduct}><option value="">Selecione</option>{products.filter((p) => p.is_active && p.sale_mode !== "weight").map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</NativeSelect></Field>
             <Field label="Movimento"><NativeSelect value={movementType} onChange={setMovementType}><option value="loss">Perda</option><option value="out">Saída manual</option><option value="adjustment">Ajustar saldo final</option></NativeSelect></Field>
             <Field label={movementType === "adjustment" ? "Novo saldo" : "Quantidade"}><Input value={movementQty} onChange={(e) => setMovementQty(e.target.value)} placeholder="0" /></Field>
             <Field label="Motivo"><Input value={movementReason} onChange={(e) => setMovementReason(e.target.value)} placeholder="Quebra, consumo interno, conferência..." /></Field>
@@ -260,7 +263,7 @@ function EstoquePage() {
 
         <SectionCard title="Produtos" actions={<div className="w-72 max-w-full"><SearchBox value={search} onChange={setSearch} placeholder="Buscar produto ou categoria" /></div>}>
           {isLoading ? <p className="text-sm text-muted-foreground">Carregando estoque…</p> : filtered.length === 0 ? <EmptyState title="Nenhum produto cadastrado" description="Cadastre bebidas, complementos e embalagens. A base Açaí + Gelato por peso é criada automaticamente pelo sistema." /> : (
-            <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Produto</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Saldo</th><th className="px-4 py-3">Venda</th><th className="px-4 py-3">Preço</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((p) => <tr key={p.id}><td className="px-4 py-3 font-medium">{p.name}<div className="mt-1">{Number(p.stock_qty) <= Number(p.low_stock_threshold) && <LowStockBadge />}</div></td><td className="px-4 py-3 text-muted-foreground">{p.category}</td><td className="px-4 py-3">{num(p.stock_qty, p.unit === "kg" ? 3 : 0)} {p.unit}</td><td className="px-4 py-3 text-muted-foreground">{p.sale_mode === "weight" ? "Peso · baixa automática" : p.sale_mode === "addon" ? (p.is_free_addon ? "Adicional grátis" : "Adicional") : "Unidade"}</td><td className="px-4 py-3">{brl(p.price)}</td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => startEdit(p)}>Editar</Button><Button size="sm" variant="ghost" className="text-destructive" onClick={() => deactivate(p)}>Desativar</Button></div></td></tr>)}</tbody></table></TableShell>
+            <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Produto</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Saldo</th><th className="px-4 py-3">Venda</th><th className="px-4 py-3">Preço</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((p) => <tr key={p.id}><td className="px-4 py-3 font-medium">{p.name}<div className="mt-1">{p.sale_mode !== "weight" && Number(p.stock_qty) <= Number(p.low_stock_threshold) && <LowStockBadge />}</div></td><td className="px-4 py-3 text-muted-foreground">{p.category}</td><td className="px-4 py-3">{p.sale_mode === "weight" ? `${p.package_count ?? 0} potes · ${num(p.package_volume_l ?? 0, 1)} L cada` : `${num(p.stock_qty, 0)} ${p.unit}`}</td><td className="px-4 py-3 text-muted-foreground">{p.sale_mode === "weight" ? "Peso · estoque manual por potes" : p.sale_mode === "addon" ? (p.is_free_addon ? "Adicional grátis" : "Adicional") : "Unidade · baixa automática"}</td><td className="px-4 py-3">{brl(p.price)}</td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => startEdit(p)}>Editar</Button><Button size="sm" variant="ghost" className="text-destructive" onClick={() => deactivate(p)}>Desativar</Button></div></td></tr>)}</tbody></table></TableShell>
           )}
         </SectionCard>
 
