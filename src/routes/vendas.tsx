@@ -37,6 +37,7 @@ function VendasPage() {
   const [weightGrams, setWeightGrams] = useState("");
   const [pricePerKg, setPricePerKg] = useState("");
   const [discount, setDiscount] = useState("");
+  const [discountMode, setDiscountMode] = useState<"amount" | "percent">("amount");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [payments, setPayments] = useState<Record<string, string>>({});
   const [customer, setCustomer] = useState("");
@@ -72,10 +73,13 @@ function VendasPage() {
   const grams = useMemo(() => Math.max(parseNumber(weightGrams), 0), [weightGrams]);
   const kg = grams / 1000;
   const pricePerKgAmount = parseNumber(pricePerKg);
-  const discountAmount = Math.max(parseNumber(discount), 0);
+  const discountValue = Math.max(parseNumber(discount), 0);
   const weightedTotal = kg * pricePerKgAmount;
   const itemsTotal = cart.reduce((a, i) => a + i.qty * i.unitPrice, 0);
   const subtotal = weightedTotal + itemsTotal;
+  const discountAmount = discountMode === "percent"
+    ? Number(((subtotal * discountValue) / 100).toFixed(2))
+    : discountValue;
   const total = Math.max(subtotal - discountAmount, 0);
   const paid = Object.values(payments).reduce((a, v) => a + parseNumber(v || "0"), 0);
   const fiadoMethod = methods.find((m) => m.kind === "credit_account");
@@ -133,6 +137,7 @@ function VendasPage() {
     mutationFn: async () => {
       if (total <= 0) throw new Error("Adicione o peso ou algum produto à venda.");
       if (grams > 0 && pricePerKgAmount <= 0) throw new Error("O preço por kg precisa ser maior que zero.");
+      if (discountMode === "percent" && discountValue > 100) throw new Error("O desconto percentual não pode ser maior que 100%.");
       if (discountAmount > subtotal) throw new Error("O desconto não pode ser maior que o subtotal da venda.");
       if (!isManager && discountAmount > 0) throw new Error("Somente sócios ou administradores podem aplicar desconto.");
       if (!isManager && grams > 0 && Math.abs(pricePerKgAmount - configuredPricePerKg) > 0.001) {
@@ -169,7 +174,7 @@ function VendasPage() {
     },
     onSuccess: async () => {
       toast.success("Venda registrada com sucesso.");
-      setWeightGrams(""); setDiscount(""); setCart([]); setPayments({}); setCustomer(""); setFiadoDueDate("");
+      setWeightGrams(""); setDiscount(""); setDiscountMode("amount"); setCart([]); setPayments({}); setCustomer(""); setFiadoDueDate("");
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["np-sales-workspace"] }),
         qc.invalidateQueries({ queryKey: ["np-products"] }),
@@ -212,7 +217,43 @@ function VendasPage() {
 
           <SectionCard title="Carrinho">
             {cart.length === 0 ? <div className="py-4 text-center text-[12px] text-muted-foreground sm:py-5 sm:text-sm"><ShoppingBag className="mx-auto mb-2 h-5 w-5 sm:h-6 sm:w-6" />Sem produtos adicionais.</div> : <div className="space-y-2.5 sm:space-y-3">{cart.map((item) => <div key={item.productId} className="rounded-xl border border-border p-3"><div className="flex items-center justify-between gap-2"><p className="min-w-0 truncate text-[12px] font-medium sm:text-sm">{item.label}</p><p className="shrink-0 text-[12px] sm:text-sm">{brl(item.qty * item.unitPrice)}</p></div><div className="mt-2 flex items-center gap-2"><Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => changeQty(item.productId, -1)}><Minus className="h-3 w-3" /></Button><span className="min-w-6 text-center text-xs">{item.qty}</span><Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => changeQty(item.productId, 1)}><Plus className="h-3 w-3" /></Button><span className="ml-auto text-[10px] text-muted-foreground sm:text-xs">{item.unitPrice === 0 ? "grátis" : brl(item.unitPrice) + "/un"}</span></div></div>)}</div>}
-            <div className="mt-4"><Field label={`Desconto (opcional)${isManager ? "" : " · restrito aos sócios"}`}><Input inputMode="decimal" value={discount} onChange={(e) => setDiscount(e.target.value)} placeholder="0,00" disabled={!isManager} /></Field></div>
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Desconto (opcional){isManager ? "" : " · restrito aos sócios"}
+                </span>
+                <div className="flex rounded-xl border border-border bg-muted/40 p-0.5">
+                  <button
+                    type="button"
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${discountMode === "amount" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+                    disabled={!isManager}
+                    onClick={() => { setDiscountMode("amount"); setDiscount(""); }}
+                  >
+                    R$
+                  </button>
+                  <button
+                    type="button"
+                    className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${discountMode === "percent" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+                    disabled={!isManager}
+                    onClick={() => { setDiscountMode("percent"); setDiscount(""); }}
+                  >
+                    %
+                  </button>
+                </div>
+              </div>
+              <Input
+                inputMode="decimal"
+                value={discount}
+                onChange={(e) => setDiscount(e.target.value)}
+                placeholder={discountMode === "percent" ? "0%" : "0,00"}
+                disabled={!isManager}
+              />
+              {discountMode === "percent" && discountValue > 0 ? (
+                <p className="mt-1.5 text-[10px] text-muted-foreground">
+                  {discountValue.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% = {brl(discountAmount)} de desconto.
+                </p>
+              ) : null}
+            </div>
           </SectionCard>
 
           <SectionCard title="Pagamento" description="Pode dividir a mesma venda em mais de uma forma.">
