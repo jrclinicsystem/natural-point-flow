@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Ban, Plus, RotateCcw } from "lucide-react";
+import { Ban, ChevronDown, Plus, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, StatCard } from "@/components/AppLayout";
 import { EmptyState, Field, NativeSelect, SearchBox, SectionCard, StatusPill, TableShell } from "@/components/NaturalPointUI";
@@ -56,7 +56,7 @@ function ReceitasPage() {
   const [search, setSearch] = useState("");
   const [origin, setOrigin] = useState<Origin>("all");
   const [methodId, setMethodId] = useState("all");
-  const [status, setStatus] = useState<EntryStatus>("all");
+  const [status, setStatus] = useState<EntryStatus>("paid");
   const [period, setPeriod] = useState<Period>("month");
   const [from, setFrom] = useState(monthStartISO());
   const [to, setTo] = useState(todayISO());
@@ -175,6 +175,31 @@ function ReceitasPage() {
       ].join(" ")).includes(q);
     });
   }, [entries, search, origin, methodId, status]);
+
+  const groupedEntries = useMemo(() => {
+    const groups = new Map<string, RevenueEntry[]>();
+    for (const entry of filtered) {
+      const label = dateBR(entry.date);
+      const rows = groups.get(label) ?? [];
+      rows.push(entry);
+      groups.set(label, rows);
+    }
+    return [...groups.entries()];
+  }, [filtered]);
+
+  const filteredTotal = filtered.reduce((sum, entry) => sum + entry.amount, 0);
+  const entriesPanelTitle =
+    status === "paid"
+      ? `Entradas recebidas (${filtered.length})`
+      : status === "cancelled"
+        ? `Entradas canceladas (${filtered.length})`
+        : `Entradas (${filtered.length})`;
+  const entriesPanelSubtitle =
+    status === "paid"
+      ? "Somente valores efetivamente recebidos entram como receita, líquido e resultado."
+      : status === "cancelled"
+        ? "Lançamentos cancelados permanecem no histórico e não entram no resultado."
+        : "Entradas recebidas e canceladas no período selecionado.";
 
   const activeEntries = filtered.filter((entry) => entry.status === "paid");
   const total = activeEntries.reduce((sum, entry) => sum + entry.amount, 0);
@@ -348,53 +373,87 @@ function ReceitasPage() {
             ) : filtered.length === 0 ? (
               <EmptyState title="Nenhuma entrada encontrada" description="Ajuste os filtros ou registre uma nova entrada manual." />
             ) : (
-              <TableShell>
-                <table className="min-w-full text-sm">
-                  <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-                    <tr>
-                      <th className="px-4 py-3">Data</th>
-                      <th className="px-4 py-3">Descrição</th>
-                      <th className="px-4 py-3">Origem</th>
-                      <th className="px-4 py-3">Forma</th>
-                      <th className="px-4 py-3">Valor</th>
-                      <th className="px-4 py-3">Status</th>
-                      <th className="px-4 py-3 text-right">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {filtered.map((entry) => (
-                      <tr key={entry.key}>
-                        <td className="px-4 py-3 whitespace-nowrap">{dateBR(entry.date)}</td>
-                        <td className="px-4 py-3 font-medium">
-                          {entry.description}
-                          <p className="text-xs font-normal text-muted-foreground">{entry.customer}</p>
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground">{entry.originLabel}</td>
-                        <td className="px-4 py-3">{entry.methodName}</td>
-                        <td className="px-4 py-3 font-medium">{brl(entry.amount)}</td>
-                        <td className="px-4 py-3"><StatusPill status={entry.status} /></td>
-                        <td className="px-4 py-3 text-right">
-                          {entry.origin === "manual" && entry.status === "paid" ? (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              className="text-destructive"
-                              disabled={cancelEntry.isPending}
-                              onClick={() => {
-                                if (window.confirm("Cancelar esta entrada manual? O lançamento será preservado no histórico.")) {
-                                  cancelEntry.mutate(entry.rawId);
-                                }
-                              }}
-                            >
-                              <Ban className="mr-2 h-4 w-4" /> Cancelar
-                            </Button>
-                          ) : <span className="text-xs text-muted-foreground">—</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </TableShell>
+              <details className="group overflow-hidden rounded-[22px] border border-border bg-card">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 sm:px-5">
+                  <div className="min-w-0">
+                    <strong className="text-sm font-semibold text-foreground sm:text-base">{entriesPanelTitle}</strong>
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">{entriesPanelSubtitle}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <strong className="text-sm text-success sm:text-base">{brl(filteredTotal)}</strong>
+                    <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+                  </div>
+                </summary>
+
+                <div className="space-y-3 border-t border-border p-3 sm:p-4">
+                  {groupedEntries.map(([date, rows]) => {
+                    const dayTotal = rows.reduce((sum, entry) => sum + entry.amount, 0);
+                    return (
+                      <details key={date} className="group/day overflow-hidden rounded-2xl border border-border bg-background">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3">
+                          <div>
+                            <strong className="text-sm">{date}</strong>
+                            <p className="text-[11px] text-muted-foreground">{rows.length} lançamento(s)</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <strong className="text-foreground">{brl(dayTotal)}</strong>
+                            <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-open/day:rotate-180" />
+                          </div>
+                        </summary>
+                        <div className="border-t border-border p-2 sm:p-3">
+                          <TableShell>
+                            <table className="min-w-full text-sm">
+                              <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+                                <tr>
+                                  <th className="px-4 py-3">Data</th>
+                                  <th className="px-4 py-3">Descrição</th>
+                                  <th className="px-4 py-3">Origem</th>
+                                  <th className="px-4 py-3">Forma</th>
+                                  <th className="px-4 py-3">Valor</th>
+                                  <th className="px-4 py-3">Status</th>
+                                  <th className="px-4 py-3 text-right">Ações</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-border">
+                                {rows.map((entry) => (
+                                  <tr key={entry.key}>
+                                    <td className="px-4 py-3 whitespace-nowrap">{dateBR(entry.date)}</td>
+                                    <td className="px-4 py-3 font-medium">
+                                      {entry.description}
+                                      <p className="text-xs font-normal text-muted-foreground">{entry.customer}</p>
+                                    </td>
+                                    <td className="px-4 py-3 text-muted-foreground">{entry.originLabel}</td>
+                                    <td className="px-4 py-3">{entry.methodName}</td>
+                                    <td className="px-4 py-3 font-medium">{brl(entry.amount)}</td>
+                                    <td className="px-4 py-3"><StatusPill status={entry.status} /></td>
+                                    <td className="px-4 py-3 text-right">
+                                      {entry.origin === "manual" && entry.status === "paid" ? (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="text-destructive"
+                                          disabled={cancelEntry.isPending}
+                                          onClick={() => {
+                                            if (window.confirm("Cancelar esta entrada manual? O lançamento será preservado no histórico.")) {
+                                              cancelEntry.mutate(entry.rawId);
+                                            }
+                                          }}
+                                        >
+                                          <Ban className="mr-2 h-4 w-4" /> Cancelar
+                                        </Button>
+                                      ) : <span className="text-xs text-muted-foreground">—</span>}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </TableShell>
+                        </div>
+                      </details>
+                    );
+                  })}
+                </div>
+              </details>
             )}
           </div>
         </SectionCard>
