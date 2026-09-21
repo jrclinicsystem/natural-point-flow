@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, StatCard } from "@/components/AppLayout";
 import { EmptyState, Field, NativeSelect, SearchBox, SectionCard, StatusPill, TableShell } from "@/components/NaturalPointUI";
@@ -51,6 +51,18 @@ function DespesasPage() {
   const methods = data?.methods ?? [];
   const q = search.trim().toLowerCase();
   const filtered = useMemo(() => expenses.filter((e: any) => !q || `${e.description} ${e.supplier ?? ""} ${e.expense_categories?.name ?? ""}`.toLowerCase().includes(q)), [expenses, q]);
+  const groupedExpenses = useMemo(() => {
+    const groups = new Map<string, any[]>();
+    for (const row of filtered) {
+      const label = dateBR(row.expense_date);
+      const rows = groups.get(label) ?? [];
+      rows.push(row);
+      groups.set(label, rows);
+    }
+    return [...groups.entries()];
+  }, [filtered]);
+  const filteredTotal = filtered.reduce((sum: number, row: any) => sum + Number(row.amount ?? 0), 0);
+
   const paidTotal = expenses.filter((e: any) => e.status === "paid").reduce((a: number, e: any) => a + Number(e.amount), 0);
   const pendingTotal = expenses.filter((e: any) => e.status === "pending").reduce((a: number, e: any) => a + Number(e.amount), 0);
 
@@ -125,7 +137,89 @@ function DespesasPage() {
         </SectionCard>}
 
         <SectionCard title="Histórico de despesas" actions={<div className="w-72 max-w-full"><SearchBox value={search} onChange={setSearch} placeholder="Buscar despesa" /></div>}>
-          {isLoading ? <p className="text-sm text-muted-foreground">Carregando…</p> : filtered.length === 0 ? <EmptyState title="Nenhuma despesa cadastrada" description="Quando você registrar compras, contas ou outras despesas elas aparecerão aqui." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Descrição</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Data</th><th className="px-4 py-3">Valor</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((row: any) => <tr key={row.id}><td className="px-4 py-3 font-medium">{row.description}<p className="text-xs font-normal text-muted-foreground">{row.supplier || "Sem fornecedor"}</p></td><td className="px-4 py-3 text-muted-foreground">{row.expense_categories?.name || "-"}</td><td className="px-4 py-3">{dateBR(row.expense_date)}</td><td className="px-4 py-3 font-medium">{brl(row.amount)}</td><td className="px-4 py-3"><StatusPill status={row.status} overdue={row.status === "pending" && !!row.due_date && row.due_date < todayISO()} /></td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2">{row.status === "pending" && <><NativeSelect value="" onChange={(v) => markPaid(row, v)} className="h-8 w-40"><option value="">Marcar paga...</option>{methods.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</NativeSelect><Button size="sm" variant="ghost" className="text-destructive" onClick={() => remove(row)}><Trash2 className="h-4 w-4" /></Button></>}</div></td></tr>)}</tbody></table></TableShell>}
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Carregando…</p>
+          ) : filtered.length === 0 ? (
+            <EmptyState title="Nenhuma despesa cadastrada" description="Quando você registrar compras, contas ou outras despesas elas aparecerão aqui." />
+          ) : (
+            <details className="group overflow-hidden rounded-[22px] border border-border bg-card">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 sm:px-5">
+                <div className="min-w-0">
+                  <strong className="text-sm font-semibold text-foreground sm:text-base">Despesas do período ({filtered.length})</strong>
+                  <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground sm:text-xs">Abra para ver as datas e depois os lançamentos de cada dia.</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <strong className="text-sm text-destructive sm:text-base">{brl(filteredTotal)}</strong>
+                  <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
+                </div>
+              </summary>
+
+              <div className="space-y-3 border-t border-border p-3 sm:p-4">
+                {groupedExpenses.map(([date, rows]) => {
+                  const dayTotal = rows.reduce((sum: number, row: any) => sum + Number(row.amount ?? 0), 0);
+                  return (
+                    <details key={date} className="group/day overflow-hidden rounded-2xl border border-border bg-background">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3">
+                        <div>
+                          <strong className="text-sm">{date}</strong>
+                          <p className="text-[11px] text-muted-foreground">{rows.length} saída(s)</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <strong className="text-destructive">{brl(dayTotal)}</strong>
+                          <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform duration-200 group-open/day:rotate-180" />
+                        </div>
+                      </summary>
+                      <div className="border-t border-border p-2 sm:p-3">
+                        <TableShell>
+                          <table className="min-w-full text-sm">
+                            <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+                              <tr>
+                                <th className="px-4 py-3">Descrição</th>
+                                <th className="px-4 py-3">Categoria</th>
+                                <th className="px-4 py-3">Data</th>
+                                <th className="px-4 py-3">Valor</th>
+                                <th className="px-4 py-3">Status</th>
+                                <th className="px-4 py-3 text-right">Ações</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border">
+                              {rows.map((row: any) => (
+                                <tr key={row.id}>
+                                  <td className="px-4 py-3 font-medium">
+                                    {row.description}
+                                    <p className="text-xs font-normal text-muted-foreground">{row.supplier || "Sem fornecedor"}</p>
+                                  </td>
+                                  <td className="px-4 py-3 text-muted-foreground">{row.expense_categories?.name || "-"}</td>
+                                  <td className="px-4 py-3">{dateBR(row.expense_date)}</td>
+                                  <td className="px-4 py-3 font-medium">{brl(row.amount)}</td>
+                                  <td className="px-4 py-3"><StatusPill status={row.status} overdue={row.status === "pending" && !!row.due_date && row.due_date < todayISO()} /></td>
+                                  <td className="px-4 py-3 text-right">
+                                    <div className="flex justify-end gap-2">
+                                      {row.status === "pending" && (
+                                        <>
+                                          <NativeSelect value="" onChange={(v) => markPaid(row, v)} className="h-8 w-40">
+                                            <option value="">Marcar paga...</option>
+                                            {methods.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                          </NativeSelect>
+                                          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => remove(row)}>
+                                            <Trash2 className="h-4 w-4" />
+                                          </Button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </TableShell>
+                      </div>
+                    </details>
+                  );
+                })}
+              </div>
+            </details>
+          )}
         </SectionCard>
       </div>
     </AppLayout>
