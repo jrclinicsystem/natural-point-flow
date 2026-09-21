@@ -19,6 +19,7 @@ import {
   MoreHorizontal,
   X,
   ShoppingBasket,
+  ArrowDownToLine,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -39,6 +40,7 @@ const NAV: NavItem[] = [
   { to: "/estoque", label: "Estoque", icon: Boxes, group: "operacao" },
   { to: "/caixa", label: "Caixa", icon: Wallet, group: "operacao" },
   { to: "/contas-a-receber", label: "Contas a receber", icon: FileText, group: "financeiro" },
+  { to: "/receitas", label: "Receitas (entradas)", icon: ArrowDownToLine, managerOnly: true, group: "financeiro" },
   { to: "/despesas", label: "Despesas", icon: FileMinus, managerOnly: true, group: "financeiro" },
   { to: "/contas-a-pagar", label: "Contas a pagar", icon: Receipt, managerOnly: true, group: "financeiro" },
   { to: "/comissoes", label: "Comissões", icon: CircleDollarSign, managerOnly: true, group: "financeiro" },
