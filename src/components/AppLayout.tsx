@@ -20,6 +20,7 @@ import {
   X,
   ShoppingBasket,
   ArrowDownToLine,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -46,6 +47,7 @@ const NAV: NavItem[] = [
   { to: "/comissoes", label: "Comissões", icon: CircleDollarSign, managerOnly: true, group: "financeiro" },
   { to: "/relatorios", label: "Relatórios", icon: PieChart, managerOnly: true, group: "gestao" },
   { to: "/usuarios", label: "Usuários e acessos", icon: Users, managerOnly: true, group: "gestao" },
+  { to: "/configuracoes", label: "Configurações", icon: Settings, managerOnly: true, group: "gestao" },
 ];
 
 const MOBILE_PURCHASE_ITEM: NavItem = {
