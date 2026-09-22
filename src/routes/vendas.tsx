@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Minus, Plus, ShoppingBag } from "lucide-react";
+import { Minus, Plus, ShoppingBag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, StatCard } from "@/components/AppLayout";
 import { EmptyState, Field, NativeSelect, SearchBox, SectionCard } from "@/components/NaturalPointUI";
@@ -32,6 +32,7 @@ type Product = {
 
 type PaymentMethod = { id: string; code: string; name: string; kind: string; fee_percent: number; is_active: boolean };
 type CartItem = { productId: string; label: string; qty: number; unitPrice: number; itemType: "product" | "addon" };
+type WeightEntry = { id: string; grams: number; pricePerKg: number; total: number };
 
 function VendasPage() {
   const qc = useQueryClient();
@@ -41,6 +42,7 @@ function VendasPage() {
   const [discount, setDiscount] = useState("");
   const [discountMode, setDiscountMode] = useState<"amount" | "percent">("amount");
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [weightEntries, setWeightEntries] = useState<WeightEntry[]>([]);
   const [selectedPaymentId, setSelectedPaymentId] = useState("");
   const [splitPayment, setSplitPayment] = useState(false);
   const [payments, setPayments] = useState<Record<string, string>>({});
@@ -78,8 +80,12 @@ function VendasPage() {
   const pricePerKgAmount = parseNumber(pricePerKg);
   const discountValue = Math.max(parseNumber(discount), 0);
   const weightedTotal = kg * pricePerKgAmount;
+  const committedWeightGrams = weightEntries.reduce((sum, entry) => sum + entry.grams, 0);
+  const committedWeightKg = committedWeightGrams / 1000;
+  const committedWeightedTotal = weightEntries.reduce((sum, entry) => sum + entry.total, 0);
+  const saleWeightPricePerKg = weightEntries[0]?.pricePerKg ?? pricePerKgAmount;
   const itemsTotal = cart.reduce((a, i) => a + i.qty * i.unitPrice, 0);
-  const subtotal = weightedTotal + itemsTotal;
+  const subtotal = committedWeightedTotal + itemsTotal;
   const discountAmount = discountMode === "percent"
     ? Number(((subtotal * discountValue) / 100).toFixed(2))
     : discountValue;
@@ -129,6 +135,44 @@ function VendasPage() {
     });
   }, [sellableProducts, search]);
 
+  const addWeightEntry = () => {
+    if (!weightProduct) {
+      toast.error("A base Açaí + Gelato não está configurada no estoque.");
+      return;
+    }
+    if (grams <= 0) {
+      toast.error("Informe um peso maior que zero.");
+      return;
+    }
+    if (pricePerKgAmount <= 0) {
+      toast.error("O preço por kg precisa ser maior que zero.");
+      return;
+    }
+    if (!isManager && Math.abs(pricePerKgAmount - configuredPricePerKg) > 0.001) {
+      toast.error("Somente sócios ou administradores podem alterar o preço por kg.");
+      return;
+    }
+    if (weightEntries.length > 0 && Math.abs(pricePerKgAmount - saleWeightPricePerKg) > 0.001) {
+      toast.error("Remova os pesos adicionados antes de alterar o preço por kg.");
+      return;
+    }
+
+    setWeightEntries((current) => [
+      ...current,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        grams,
+        pricePerKg: pricePerKgAmount,
+        total: Number(weightedTotal.toFixed(2)),
+      },
+    ]);
+    setWeightGrams("");
+  };
+
+  const removeWeightEntry = (id: string) => {
+    setWeightEntries((current) => current.filter((entry) => entry.id !== id));
+  };
+
   const addProduct = (p: Product) => {
     if (p.stock_qty <= 0) { toast.error(`${p.name} está sem estoque.`); return; }
     const unitPrice = p.sale_mode === "addon" && p.is_free_addon ? 0 : Number(p.price);
@@ -170,12 +214,12 @@ function VendasPage() {
   const createSale = useMutation({
     mutationFn: async () => {
       if (total <= 0) throw new Error("Adicione o peso ou algum produto à venda.");
-      if (grams > 0 && !weightProduct) throw new Error("A base Açaí + Gelato não está configurada no estoque.");
-      if (grams > 0 && pricePerKgAmount <= 0) throw new Error("O preço por kg precisa ser maior que zero.");
+      if (committedWeightGrams > 0 && !weightProduct) throw new Error("A base Açaí + Gelato não está configurada no estoque.");
+      if (committedWeightGrams > 0 && saleWeightPricePerKg <= 0) throw new Error("O preço por kg precisa ser maior que zero.");
       if (discountMode === "percent" && discountValue > 100) throw new Error("O desconto percentual não pode ser maior que 100%.");
       if (discountAmount > subtotal) throw new Error("O desconto não pode ser maior que o subtotal da venda.");
       if (!isManager && discountAmount > 0) throw new Error("Somente sócios ou administradores podem aplicar desconto.");
-      if (!isManager && grams > 0 && Math.abs(pricePerKgAmount - configuredPricePerKg) > 0.001) {
+      if (!isManager && committedWeightGrams > 0 && Math.abs(saleWeightPricePerKg - configuredPricePerKg) > 0.001) {
         throw new Error("Somente sócios ou administradores podem alterar o preço por kg.");
       }
       if (!splitPayment && !selectedMethod) throw new Error("Selecione a forma de pagamento.");
@@ -202,8 +246,8 @@ function VendasPage() {
 
       const { data: saleId, error } = await supabase.rpc("create_sale", {
         _customer_name: customer.trim() || null,
-        _weight_kg: kg || null,
-        _price_per_kg: kg ? pricePerKgAmount : null,
+        _weight_kg: committedWeightKg || null,
+        _price_per_kg: committedWeightKg ? saleWeightPricePerKg : null,
         _discount: discountAmount,
         _items: itemPayload,
         _payments: paymentPayload,
@@ -216,6 +260,7 @@ function VendasPage() {
     onSuccess: async () => {
       toast.success(change > 0 ? `Venda registrada. Troco: ${brl(change)}.` : "Venda registrada com sucesso.");
       setWeightGrams("");
+      setWeightEntries([]);
       setDiscount("");
       setDiscountMode("amount");
       setCart([]);
@@ -242,8 +287,24 @@ function VendasPage() {
           <SectionCard title="Açaí + gelato por peso" description={weightProduct ? `Informe o peso total em gramas. Controle informativo: ${weightProduct.package_count ?? 0} potes de ${Number(weightProduct.package_volume_l ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} L. As vendas não são bloqueadas por esse controle.` : "A base Açaí + Gelato precisa ser configurada em Estoque antes da primeira venda."}>
             <div className="grid gap-3 md:grid-cols-3 md:gap-4">
               <Field label="Peso total (gramas)"><Input inputMode="decimal" value={weightGrams} onChange={(e) => setWeightGrams(e.target.value)} placeholder="Ex.: 500" /></Field>
-              <Field label={`Preço por kg${isManager ? "" : " · definido pelo cadastro"}`}><Input inputMode="decimal" value={pricePerKg} onChange={(e) => setPricePerKg(e.target.value)} placeholder="Ex.: 59,90" disabled={!isManager} /></Field>
+              <Field label={`Preço por kg${isManager ? (weightEntries.length > 0 ? " · bloqueado nesta venda" : "") : " · definido pelo cadastro"}`}><Input inputMode="decimal" value={pricePerKg} onChange={(e) => setPricePerKg(e.target.value)} placeholder="Ex.: 59,90" disabled={!isManager || weightEntries.length > 0} /></Field>
               <div className="rounded-xl bg-primary px-4 py-3 text-primary-foreground sm:rounded-2xl"><p className="text-[11px] opacity-70 sm:text-xs">Valor por peso</p><p className="mt-1 font-display text-[22px] sm:text-2xl">{brl(weightedTotal)}</p><p className="text-[10px] opacity-70 sm:text-[11px]">{grams > 0 ? `${grams.toFixed(0)} g · ${kg.toFixed(3)} kg` : "Aguardando peso"}</p></div>
+            </div>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[11px] text-muted-foreground sm:text-xs">
+                {weightEntries.length > 0
+                  ? `${weightEntries.length} peso${weightEntries.length === 1 ? "" : "s"} adicionado${weightEntries.length === 1 ? "" : "s"} · ${brl(committedWeightedTotal)} no total`
+                  : "O valor acima é apenas uma prévia. Ele só entra no total depois de adicionar."}
+              </p>
+              <Button
+                type="button"
+                className="w-full shrink-0 sm:w-auto"
+                disabled={!weightProduct || grams <= 0 || pricePerKgAmount <= 0}
+                onClick={addWeightEntry}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                Adicionar peso
+              </Button>
             </div>
           </SectionCard>
 
@@ -255,8 +316,55 @@ function VendasPage() {
         <aside className="space-y-3 sm:space-y-4 xl:sticky xl:top-24 xl:self-start">
           <StatCard label="Total da venda" value={brl(total)} tone="gold" hint={`Subtotal ${brl(subtotal)}${discountAmount ? ` · desconto ${brl(discountAmount)}` : ""}`} />
 
-          <SectionCard title="Carrinho">
-            {cart.length === 0 ? <div className="py-4 text-center text-[12px] text-muted-foreground sm:py-5 sm:text-sm"><ShoppingBag className="mx-auto mb-2 h-5 w-5 sm:h-6 sm:w-6" />Sem produtos adicionais.</div> : <div className="space-y-2.5 sm:space-y-3">{cart.map((item) => <div key={item.productId} className="rounded-xl border border-border p-3"><div className="flex items-center justify-between gap-2"><p className="min-w-0 truncate text-[12px] font-medium sm:text-sm">{item.label}</p><p className="shrink-0 text-[12px] sm:text-sm">{brl(item.qty * item.unitPrice)}</p></div><div className="mt-2 flex items-center gap-2"><Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => changeQty(item.productId, -1)}><Minus className="h-3 w-3" /></Button><span className="min-w-6 text-center text-xs">{item.qty}</span><Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => changeQty(item.productId, 1)}><Plus className="h-3 w-3" /></Button><span className="ml-auto text-[10px] text-muted-foreground sm:text-xs">{item.unitPrice === 0 ? "grátis" : brl(item.unitPrice) + "/un"}</span></div></div>)}</div>}
+          <SectionCard title="Itens da venda">
+            {weightEntries.length === 0 && cart.length === 0 ? (
+              <div className="py-4 text-center text-[12px] text-muted-foreground sm:py-5 sm:text-sm">
+                <ShoppingBag className="mx-auto mb-2 h-5 w-5 sm:h-6 sm:w-6" />
+                Nenhum item adicionado.
+              </div>
+            ) : (
+              <div className="space-y-2.5 sm:space-y-3">
+                {weightEntries.map((entry, index) => (
+                  <div key={entry.id} className="rounded-xl border border-primary/20 bg-primary/[0.025] p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="min-w-0 truncate text-[12px] font-medium sm:text-sm">
+                        Açaí + Gelato · Peso {index + 1}
+                      </p>
+                      <p className="shrink-0 text-[12px] font-medium sm:text-sm">{brl(entry.total)}</p>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground sm:text-xs">
+                        {entry.grams.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} g · {brl(entry.pricePerKg)}/kg
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="ml-auto h-8 w-8 p-0"
+                        aria-label={`Remover peso ${index + 1}`}
+                        onClick={() => removeWeightEntry(entry.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {cart.map((item) => (
+                  <div key={item.productId} className="rounded-xl border border-border p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="min-w-0 truncate text-[12px] font-medium sm:text-sm">{item.label}</p>
+                      <p className="shrink-0 text-[12px] sm:text-sm">{brl(item.qty * item.unitPrice)}</p>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => changeQty(item.productId, -1)}><Minus className="h-3 w-3" /></Button>
+                      <span className="min-w-6 text-center text-xs">{item.qty}</span>
+                      <Button size="sm" variant="outline" className="h-8 w-8 p-0" onClick={() => changeQty(item.productId, 1)}><Plus className="h-3 w-3" /></Button>
+                      <span className="ml-auto text-[10px] text-muted-foreground sm:text-xs">{item.unitPrice === 0 ? "grátis" : brl(item.unitPrice) + "/un"}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
