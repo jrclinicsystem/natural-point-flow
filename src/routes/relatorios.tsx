@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Download } from "lucide-react";
+import { Download, Printer } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AppLayout, StatCard } from "@/components/AppLayout";
 import { Field, SectionCard, TableShell } from "@/components/NaturalPointUI";
@@ -14,6 +14,26 @@ export const Route = createFileRoute("/relatorios")({
   head: () => ({ meta: [{ title: "Relatórios | Natural Point" }] }),
   component: RelatoriosPage,
 });
+
+type ReportEntry = {
+  key: string;
+  type: "sale" | "manual";
+  date: string;
+  description: string;
+  gross: number;
+  fees: number;
+  net: number;
+};
+
+const one = (value: any) => (Array.isArray(value) ? value[0] : value);
+
+const escapeHtml = (value: unknown) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 
 function RelatoriosPage() {
   const [from, setFrom] = useState(monthStartISO());
@@ -44,75 +64,330 @@ function RelatoriosPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["np-reports", from, to],
     queryFn: async () => {
-      const [summary, sales, expenses, payments, cashSessions] = await Promise.all([
-        supabase.rpc("dashboard_summary", { _from: from, _to: to }),
-        supabase.from("sales").select("id,sold_at,total,status,customer_name").gte("sold_at", `${from}T00:00:00`).lte("sold_at", `${to}T23:59:59`).order("sold_at"),
-        supabase.from("expenses").select("id,expense_date,description,amount,status,expense_categories(name)").gte("expense_date", from).lte("expense_date", to).order("expense_date"),
-        supabase.from("sale_payments").select("amount,fee_amount,net_amount,created_at,payment_methods(name,kind)").gte("created_at", `${from}T00:00:00`).lte("created_at", `${to}T23:59:59`),
-        supabase.from("cash_sessions").select("*").gte("business_date", from).lte("business_date", to).order("business_date", { ascending: false }),
+      const start = `${from}T00:00:00-03:00`;
+      const end = `${to}T23:59:59.999-03:00`;
+      const [payments, manualReceipts, expenses, cashSessions] = await Promise.all([
+        supabase
+          .from("sale_payments")
+          .select("id,sale_id,payment_method_id,amount,fee_amount,net_amount,created_at,payment_methods!inner(name,kind),sales(customer_name,status,sold_at)")
+          .neq("payment_methods.kind", "credit_account")
+          .gte("created_at", start)
+          .lte("created_at", end)
+          .order("created_at"),
+        supabase
+          .from("accounts_receivable")
+          .select("id,customer_name,description,amount,issue_date,status,payment_method_id,paid_at,payment_methods(name,kind)")
+          .is("sale_id", null)
+          .eq("status", "paid")
+          .not("paid_at", "is", null)
+          .gte("paid_at", start)
+          .lte("paid_at", end)
+          .order("paid_at"),
+        supabase
+          .from("expenses")
+          .select("id,expense_date,description,amount,status,expense_categories(name)")
+          .gte("expense_date", from)
+          .lte("expense_date", to)
+          .order("expense_date"),
+        supabase
+          .from("cash_sessions")
+          .select("*")
+          .gte("business_date", from)
+          .lte("business_date", to)
+          .order("business_date", { ascending: false }),
       ]);
-      if (summary.error) throw summary.error;
-      if (sales.error) throw sales.error;
-      if (expenses.error) throw expenses.error;
       if (payments.error) throw payments.error;
+      if (manualReceipts.error) throw manualReceipts.error;
+      if (expenses.error) throw expenses.error;
       if (cashSessions.error) throw cashSessions.error;
-      return { summary: summary.data ?? [], sales: sales.data ?? [], expenses: expenses.data ?? [], payments: payments.data ?? [], cashSessions: cashSessions.data ?? [] };
+      return {
+        payments: payments.data ?? [],
+        manualReceipts: manualReceipts.data ?? [],
+        expenses: expenses.data ?? [],
+        cashSessions: cashSessions.data ?? [],
+      };
     },
   });
 
-  const metrics = useMemo(() => Object.fromEntries((data?.summary ?? []).map((r: any) => [r.metric, Number(r.value)])), [data]);
-  const chart = useMemo(() => {
-    const map = new Map<string, { date: string; vendas: number; despesas: number }>();
-    for (const s of data?.sales ?? []) {
-      if (s.status !== "paid") continue;
-      const d = String(s.sold_at).slice(0, 10);
-      const item = map.get(d) ?? { date: d, vendas: 0, despesas: 0 };
-      item.vendas += Number(s.total);
-      map.set(d, item);
+  const entries = useMemo<ReportEntry[]>(() => {
+    const salesMap = new Map<string, ReportEntry>();
+
+    for (const raw of data?.payments ?? []) {
+      const p: any = raw;
+      const sale = one(p.sales);
+      if (sale?.status === "cancelled") continue;
+
+      const gross = Number(p.amount ?? 0);
+      const fees = Number(p.fee_amount ?? 0);
+      const net = Number(p.net_amount ?? gross - fees);
+      const key = String(p.sale_id ?? p.id);
+      const current = salesMap.get(key) ?? {
+        key: `sale-${key}`,
+        type: "sale" as const,
+        date: sale?.sold_at || p.created_at,
+        description: sale?.customer_name ? `Venda · ${sale.customer_name}` : "Venda balcão",
+        gross: 0,
+        fees: 0,
+        net: 0,
+      };
+      current.gross += gross;
+      current.fees += fees;
+      current.net += net;
+      salesMap.set(key, current);
     }
-    for (const e of data?.expenses ?? []) {
-      if (e.status !== "paid") continue;
-      const d = String(e.expense_date).slice(0, 10);
-      const item = map.get(d) ?? { date: d, vendas: 0, despesas: 0 };
-      item.despesas += Number(e.amount);
-      map.set(d, item);
-    }
-    return [...map.values()].sort((a, b) => a.date.localeCompare(b.date)).map((x) => ({ ...x, label: x.date.slice(8, 10) + "/" + x.date.slice(5, 7) }));
+
+    const manualEntries = (data?.manualReceipts ?? []).map((row: any) => {
+      const amount = Number(row.amount ?? 0);
+      return {
+        key: `manual-${row.id}`,
+        type: "manual" as const,
+        date: row.paid_at || row.issue_date,
+        description: row.description || row.customer_name || "Entrada manual",
+        gross: amount,
+        fees: 0,
+        net: amount,
+      };
+    });
+
+    return [...salesMap.values(), ...manualEntries].sort((a, b) => String(a.date).localeCompare(String(b.date)));
   }, [data]);
+
+  const paidExpenses = useMemo(
+    () => (data?.expenses ?? []).filter((expense: any) => expense.status === "paid"),
+    [data],
+  );
+
+  const chart = useMemo(() => {
+    const map = new Map<string, { date: string; entradas: number; despesas: number }>();
+    for (const entry of entries) {
+      const d = String(entry.date).slice(0, 10);
+      const item = map.get(d) ?? { date: d, entradas: 0, despesas: 0 };
+      item.entradas += entry.net;
+      map.set(d, item);
+    }
+    for (const expense of paidExpenses) {
+      const d = String(expense.expense_date).slice(0, 10);
+      const item = map.get(d) ?? { date: d, entradas: 0, despesas: 0 };
+      item.despesas += Number(expense.amount ?? 0);
+      map.set(d, item);
+    }
+    return [...map.values()]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((x) => ({ ...x, label: x.date.slice(8, 10) + "/" + x.date.slice(5, 7) }));
+  }, [entries, paidExpenses]);
 
   const byMethod = useMemo(() => {
     const map = new Map<string, { name: string; gross: number; fees: number; net: number }>();
     for (const raw of data?.payments ?? []) {
       const p: any = raw;
-      const method = Array.isArray(p.payment_methods) ? p.payment_methods[0] : p.payment_methods;
+      const sale = one(p.sales);
+      if (sale?.status === "cancelled") continue;
+      const method = one(p.payment_methods);
       const name = method?.name ?? "Outro";
       const row = map.get(name) ?? { name, gross: 0, fees: 0, net: 0 };
-      row.gross += Number(p.amount);
-      row.fees += Number(p.fee_amount);
-      row.net += Number(p.net_amount);
+      const gross = Number(p.amount ?? 0);
+      const fees = Number(p.fee_amount ?? 0);
+      row.gross += gross;
+      row.fees += fees;
+      row.net += Number(p.net_amount ?? gross - fees);
+      map.set(name, row);
+    }
+    for (const raw of data?.manualReceipts ?? []) {
+      const receipt: any = raw;
+      const method = one(receipt.payment_methods);
+      const name = method?.name ?? "Outro";
+      const amount = Number(receipt.amount ?? 0);
+      const row = map.get(name) ?? { name, gross: 0, fees: 0, net: 0 };
+      row.gross += amount;
+      row.net += amount;
       map.set(name, row);
     }
     return [...map.values()].sort((a, b) => b.gross - a.gross);
   }, [data]);
 
+  const salesNet = entries.filter((entry) => entry.type === "sale").reduce((sum, entry) => sum + entry.net, 0);
+  const manualNet = entries.filter((entry) => entry.type === "manual").reduce((sum, entry) => sum + entry.net, 0);
+  const totalEntries = salesNet + manualNet;
+  const totalFees = entries.reduce((sum, entry) => sum + entry.fees, 0);
+  const totalExpenses = paidExpenses.reduce((sum: number, expense: any) => sum + Number(expense.amount ?? 0), 0);
+  const result = totalEntries - totalExpenses;
+
   const exportCsv = () => {
     const lines = [
-      ["Tipo", "Data", "Descrição", "Valor"],
-      ...(data?.sales ?? []).map((s: any) => ["Venda", dateBR(s.sold_at), s.customer_name || "Venda balcão", Number(s.total).toFixed(2)]),
-      ...(data?.expenses ?? []).map((e: any) => ["Despesa", dateBR(e.expense_date), e.description, (-Number(e.amount)).toFixed(2)]),
+      ["Tipo", "Data", "Descrição", "Bruto", "Taxas", "Líquido"],
+      ...entries.map((entry) => [
+        entry.type === "sale" ? "Venda" : "Entrada manual",
+        dateBR(entry.date),
+        entry.description,
+        entry.gross.toFixed(2),
+        entry.fees.toFixed(2),
+        entry.net.toFixed(2),
+      ]),
+      ...paidExpenses.map((expense: any) => [
+        "Despesa",
+        dateBR(expense.expense_date),
+        expense.description,
+        (-Number(expense.amount)).toFixed(2),
+        "0.00",
+        (-Number(expense.amount)).toFixed(2),
+      ]),
     ];
-    const csv = lines.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(";")).join("\n");
+    const csv = lines.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(";")).join("\n");
     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `natural-point-${from}-${to}.csv`;
-    a.click();
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `natural-point-${from}-${to}.csv`;
+    anchor.click();
     URL.revokeObjectURL(url);
   };
 
+  const exportPdf = () => {
+    if (!data) return;
+    const printWindow = window.open("", "_blank", "width=1100,height=800");
+    if (!printWindow) return;
+
+    const movementRows = [
+      ...entries.map((entry) => ({
+        date: entry.date,
+        type: entry.type === "sale" ? "Entrada · Venda" : "Entrada · Manual",
+        description: entry.description,
+        gross: entry.gross,
+        fees: entry.fees,
+        net: entry.net,
+        direction: "in" as const,
+      })),
+      ...paidExpenses.map((expense: any) => ({
+        date: expense.expense_date,
+        type: "Saída · Despesa",
+        description: expense.description,
+        gross: Number(expense.amount ?? 0),
+        fees: 0,
+        net: Number(expense.amount ?? 0),
+        direction: "out" as const,
+      })),
+    ].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+
+    const summaryCards = [
+      ["Entradas líquidas", brl(totalEntries)],
+      ["Saídas pagas", brl(totalExpenses)],
+      ["Taxas", brl(totalFees)],
+      ["Resultado líquido", brl(result)],
+    ]
+      .map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
+      .join("");
+
+    const movementTable = movementRows.length
+      ? movementRows
+          .map(
+            (row) => `<tr>
+              <td>${escapeHtml(dateBR(row.date))}</td>
+              <td>${escapeHtml(row.type)}</td>
+              <td>${escapeHtml(row.description)}</td>
+              <td class="num">${escapeHtml(brl(row.gross))}</td>
+              <td class="num fee">${row.fees ? escapeHtml(brl(row.fees)) : "-"}</td>
+              <td class="num ${row.direction === "out" ? "out" : "in"}">${row.direction === "out" ? "-" : "+"}${escapeHtml(brl(row.net))}</td>
+            </tr>`,
+          )
+          .join("")
+      : `<tr><td colspan="6" class="empty">Sem movimentações no período.</td></tr>`;
+
+    const paymentTable = byMethod.length
+      ? byMethod
+          .map(
+            (row) => `<tr>
+              <td>${escapeHtml(row.name)}</td>
+              <td class="num">${escapeHtml(brl(row.gross))}</td>
+              <td class="num fee">${escapeHtml(brl(row.fees))}</td>
+              <td class="num in">${escapeHtml(brl(row.net))}</td>
+            </tr>`,
+          )
+          .join("")
+      : `<tr><td colspan="4" class="empty">Sem recebimentos no período.</td></tr>`;
+
+    printWindow.document.write(`<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Relatório Financeiro Natural Point</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; color: #32183a; font-family: Arial, Helvetica, sans-serif; background: #fffdf8; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; padding-bottom: 18px; border-bottom: 2px solid #4c1758; }
+  .brand { display: flex; gap: 12px; align-items: center; }
+  .logo { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; background: #4c1758; color: #e2b95f; font: 700 22px Georgia, serif; }
+  h1 { margin: 0; font: 700 25px Georgia, serif; }
+  .sub { margin-top: 5px; color: #75687a; font-size: 11px; }
+  .period { text-align: right; font-size: 11px; color: #75687a; line-height: 1.5; }
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin: 18px 0; }
+  .metric { border: 1px solid #e8dfd5; border-radius: 12px; padding: 11px; background: #fff; }
+  .metric span { display: block; color: #75687a; text-transform: uppercase; letter-spacing: .06em; font-size: 8px; font-weight: 700; }
+  .metric strong { display: block; margin-top: 6px; font: 700 16px Georgia, serif; }
+  .section { margin-top: 20px; break-inside: avoid; }
+  .section h2 { margin: 0 0 8px; font: 700 15px Georgia, serif; }
+  .section p { margin: -3px 0 10px; color: #75687a; font-size: 9px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; font-size: 9px; }
+  th { text-align: left; padding: 8px 7px; background: #f4efe8; color: #65576a; font-size: 8px; text-transform: uppercase; letter-spacing: .04em; }
+  td { padding: 8px 7px; border-bottom: 1px solid #eee7df; vertical-align: top; }
+  .num { text-align: right; white-space: nowrap; }
+  .fee, .out { color: #9a3744; }
+  .in { color: #27744c; font-weight: 700; }
+  .empty { text-align: center; color: #8b7f8e; padding: 18px; }
+  .totals { margin-top: 12px; display: flex; justify-content: flex-end; }
+  .totals table { width: 280px; }
+  .totals td { border: 0; padding: 4px 0 4px 12px; }
+  .totals td:first-child { color: #75687a; }
+  .result { font-weight: 700; font-size: 11px; border-top: 1px solid #d9cec5 !important; padding-top: 7px !important; }
+  .footer { margin-top: 22px; padding-top: 10px; border-top: 1px solid #e8dfd5; color: #8b7f8e; font-size: 8px; text-align: center; }
+  @media print { body { background: #fff; } .section { break-inside: auto; } thead { display: table-header-group; } tr { break-inside: avoid; } }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand"><div class="logo">N</div><div><h1>Relatório Financeiro</h1><div class="sub">Natural Point · Gestão financeira e operacional</div></div></div>
+    <div class="period"><strong>Período</strong><br>${escapeHtml(dateBR(from))} a ${escapeHtml(dateBR(to))}<br>Gerado em ${escapeHtml(new Date().toLocaleString("pt-BR"))}</div>
+  </div>
+  <div class="metrics">${summaryCards}</div>
+  <div class="section">
+    <h2>Entradas e saídas</h2>
+    <p>Valores de vendas já aparecem líquidos das taxas configuradas. Entradas manuais e despesas pagas também estão incluídas.</p>
+    <table><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th class="num">Bruto</th><th class="num">Taxa</th><th class="num">Líquido</th></tr></thead><tbody>${movementTable}</tbody></table>
+    <div class="totals"><table><tbody>
+      <tr><td>Entradas líquidas</td><td class="num in">${escapeHtml(brl(totalEntries))}</td></tr>
+      <tr><td>Saídas pagas</td><td class="num out">-${escapeHtml(brl(totalExpenses))}</td></tr>
+      <tr><td>Taxas descontadas</td><td class="num fee">${escapeHtml(brl(totalFees))}</td></tr>
+      <tr><td class="result">Resultado líquido</td><td class="num result ${result >= 0 ? "in" : "out"}">${escapeHtml(brl(result))}</td></tr>
+    </tbody></table></div>
+  </div>
+  <div class="section">
+    <h2>Recebimentos por forma de pagamento</h2>
+    <p>Comparativo entre valor bruto, taxa descontada e valor líquido efetivamente recebido.</p>
+    <table><thead><tr><th>Forma</th><th class="num">Bruto</th><th class="num">Taxas</th><th class="num">Líquido</th></tr></thead><tbody>${paymentTable}</tbody></table>
+  </div>
+  <div class="footer">Natural Point · Relatório gerado automaticamente pelo sistema</div>
+<script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 180); });</script>
+</body>
+</html>`);
+    printWindow.document.close();
+  };
+
   return (
-    <AppLayout managerOnly title="Relatórios" subtitle="Vendas, recebimentos, despesas e resultado por período" actions={<Button size="sm" variant="outline" onClick={exportCsv} disabled={!data}><Download className="mr-2 h-4 w-4" /> Exportar CSV</Button>}>
+    <AppLayout
+      managerOnly
+      title="Relatórios"
+      subtitle="Entradas, saídas, taxas e resultado líquido por período"
+      actions={
+        <div className="flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" onClick={exportCsv} disabled={!data}>
+            <Download className="mr-2 h-4 w-4" /> Exportar CSV
+          </Button>
+          <Button size="sm" onClick={exportPdf} disabled={!data}>
+            <Printer className="mr-2 h-4 w-4" /> Exportar PDF
+          </Button>
+        </div>
+      }
+    >
       <div className="space-y-6">
         <SectionCard title="Período" description="Use um atalho ou escolha um intervalo personalizado.">
           <div className="mb-4 flex flex-wrap gap-2">
@@ -131,25 +406,57 @@ function RelatoriosPage() {
             </Button>
           </div>
           <div className="grid max-w-xl gap-4 sm:grid-cols-2">
-            <Field label="De"><Input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPeriod("custom"); }} /></Field>
-            <Field label="Até"><Input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPeriod("custom"); }} /></Field>
+            <Field label="De"><Input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setPeriod("custom"); }} /></Field>
+            <Field label="Até"><Input type="date" value={to} onChange={(event) => { setTo(event.target.value); setPeriod("custom"); }} /></Field>
           </div>
         </SectionCard>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <StatCard label="Vendas" value={brl(metrics["sales_period"])} />
-          <StatCard label="Total recebido" value={brl(metrics["received"])} tone="positive" />
-          <StatCard label="Despesas pagas" value={brl(metrics["expenses"])} tone="negative" />
-          <StatCard label="Resultado" value={brl(metrics["result"])} tone={(metrics["result"] ?? 0) >= 0 ? "positive" : "negative"} />
-          <StatCard label="Taxas de pagamento" value={brl(byMethod.reduce((a, r) => a + r.fees, 0))} tone="gold" />
+          <StatCard label="Entradas líquidas" value={brl(totalEntries)} tone="positive" />
+          <StatCard label="Vendas líquidas" value={brl(salesNet)} />
+          <StatCard label="Saídas pagas" value={brl(totalExpenses)} tone="negative" />
+          <StatCard label="Resultado líquido" value={brl(result)} tone={result >= 0 ? "positive" : "negative"} />
+          <StatCard label="Taxas de pagamento" value={brl(totalFees)} tone="gold" />
         </div>
 
-        <SectionCard title="Entradas x despesas">
-          {isLoading ? <p className="text-sm text-muted-foreground">Carregando relatório…</p> : <div className="h-72"><ResponsiveContainer width="100%" height="100%"><BarChart data={chart}><CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} /><XAxis dataKey="label" fontSize={11} /><YAxis fontSize={11} /><Tooltip formatter={(v) => brl(Number(v))} /><Bar dataKey="vendas" fill="var(--chart-1)" radius={[6, 6, 0, 0]} /><Bar dataKey="despesas" fill="var(--chart-4)" radius={[6, 6, 0, 0]} /></BarChart></ResponsiveContainer></div>}
+        <SectionCard title="Entradas x despesas" description="Entradas já líquidas das taxas configuradas nas formas de pagamento.">
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Carregando relatório…</p>
+          ) : (
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chart}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="label" fontSize={11} />
+                  <YAxis fontSize={11} />
+                  <Tooltip formatter={(value) => brl(Number(value))} />
+                  <Bar dataKey="entradas" fill="var(--chart-1)" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="despesas" fill="var(--chart-4)" radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard title="Recebimentos por forma de pagamento" description="O valor líquido já considera a taxa configurada em cada forma de pagamento.">
-          <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Forma</th><th className="px-4 py-3">Bruto</th><th className="px-4 py-3">Taxas</th><th className="px-4 py-3">Líquido</th></tr></thead><tbody className="divide-y divide-border">{byMethod.map((r) => <tr key={r.name}><td className="px-4 py-3 font-medium">{r.name}</td><td className="px-4 py-3">{brl(r.gross)}</td><td className="px-4 py-3 text-destructive">{brl(r.fees)}</td><td className="px-4 py-3 text-success">{brl(r.net)}</td></tr>)}{byMethod.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">Sem recebimentos no período.</td></tr>}</tbody></table></TableShell>
+          <TableShell>
+            <table className="min-w-full text-sm">
+              <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+                <tr><th className="px-4 py-3">Forma</th><th className="px-4 py-3">Bruto</th><th className="px-4 py-3">Taxas</th><th className="px-4 py-3">Líquido</th></tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {byMethod.map((row) => (
+                  <tr key={row.name}>
+                    <td className="px-4 py-3 font-medium">{row.name}</td>
+                    <td className="px-4 py-3">{brl(row.gross)}</td>
+                    <td className="px-4 py-3 text-destructive">{brl(row.fees)}</td>
+                    <td className="px-4 py-3 text-success">{brl(row.net)}</td>
+                  </tr>
+                ))}
+                {byMethod.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">Sem recebimentos no período.</td></tr>}
+              </tbody>
+            </table>
+          </TableShell>
         </SectionCard>
 
         <SectionCard title="Fechamentos de caixa" description="Conferência do dinheiro físico em cada caixa do período selecionado.">
