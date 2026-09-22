@@ -31,6 +31,8 @@ type RevenueEntry = {
   methodId: string;
   methodName: string;
   amount: number;
+  grossAmount: number;
+  feeAmount: number;
   status: "paid" | "cancelled";
 };
 
@@ -88,7 +90,7 @@ function ReceitasPage() {
       const [payments, manualReceipts, methods] = await Promise.all([
         supabase
           .from("sale_payments")
-          .select("id,sale_id,payment_method_id,amount,created_at,payment_methods!inner(id,name,kind),sales(customer_name,status,sold_at)")
+          .select("id,sale_id,payment_method_id,amount,fee_amount,net_amount,created_at,payment_methods!inner(id,name,kind),sales(customer_name,status,sold_at)")
           .neq("payment_methods.kind", "credit_account")
           .gte("created_at", start)
           .lte("created_at", end)
@@ -124,6 +126,9 @@ function ReceitasPage() {
     const salesEntries = (data?.payments ?? []).map((row: any) => {
       const method = one(row.payment_methods);
       const sale = one(row.sales);
+      const grossAmount = Number(row.amount ?? 0);
+      const feeAmount = Number(row.fee_amount ?? 0);
+      const netAmount = Number(row.net_amount ?? grossAmount - feeAmount);
       return {
         key: "sale-" + row.id,
         rawId: row.id,
@@ -134,13 +139,16 @@ function ReceitasPage() {
         description: sale?.customer_name ? "Recebimento de venda" : "Venda balcão",
         methodId: row.payment_method_id,
         methodName: method?.name || "Não informado",
-        amount: Number(row.amount ?? 0),
+        amount: netAmount,
+        grossAmount,
+        feeAmount,
         status: sale?.status === "cancelled" ? "cancelled" as const : "paid" as const,
       };
     });
 
     const manualEntries = (data?.manualReceipts ?? []).map((row: any) => {
       const method = one(row.payment_methods);
+      const manualAmount = Number(row.amount ?? 0);
       return {
         key: "manual-" + row.id,
         rawId: row.id,
@@ -151,7 +159,9 @@ function ReceitasPage() {
         description: row.description || "Entrada manual",
         methodId: row.payment_method_id || "",
         methodName: method?.name || "Não informado",
-        amount: Number(row.amount ?? 0),
+        amount: manualAmount,
+        grossAmount: manualAmount,
+        feeAmount: 0,
         status: row.status === "cancelled" ? "cancelled" as const : "paid" as const,
       };
     });
@@ -281,8 +291,8 @@ function ReceitasPage() {
     >
       <div className="space-y-6">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard label="Total recebido" value={brl(total)} tone="positive" />
-          <StatCard label="Vendas" value={brl(salesTotal)} />
+          <StatCard label="Total recebido líquido" value={brl(total)} tone="positive" />
+          <StatCard label="Vendas líquidas" value={brl(salesTotal)} />
           <StatCard label="Entradas manuais" value={brl(manualTotal)} tone="gold" />
           <StatCard label="Lançamentos" value={String(activeEntries.length)} />
         </div>
@@ -317,7 +327,7 @@ function ReceitasPage() {
 
         <SectionCard
           title="Histórico de entradas"
-          description="Pesquise e filtre por período, origem, forma de recebimento e status."
+          description="Pesquise e filtre por período, origem, forma de recebimento e status. Vendas com taxa aparecem pelo valor líquido."
         >
           <div className="space-y-4">
             <div className="grid gap-3 lg:grid-cols-[minmax(240px,1fr)_180px_210px_170px_auto]">
@@ -409,7 +419,7 @@ function ReceitasPage() {
                                   <th className="px-4 py-3">Descrição</th>
                                   <th className="px-4 py-3">Origem</th>
                                   <th className="px-4 py-3">Forma</th>
-                                  <th className="px-4 py-3">Valor</th>
+                                  <th className="px-4 py-3">Valor líquido</th>
                                   <th className="px-4 py-3">Status</th>
                                   <th className="px-4 py-3 text-right">Ações</th>
                                 </tr>
@@ -424,7 +434,10 @@ function ReceitasPage() {
                                     </td>
                                     <td className="px-4 py-3 text-muted-foreground">{entry.originLabel}</td>
                                     <td className="px-4 py-3">{entry.methodName}</td>
-                                    <td className="px-4 py-3 font-medium">{brl(entry.amount)}</td>
+                                    <td className="px-4 py-3 font-medium">
+                                      {brl(entry.amount)}
+                                      {entry.feeAmount > 0 ? <p className="text-[10px] font-normal text-muted-foreground">Bruto {brl(entry.grossAmount)} · taxa -{brl(entry.feeAmount)}</p> : null}
+                                    </td>
                                     <td className="px-4 py-3"><StatusPill status={entry.status} /></td>
                                     <td className="px-4 py-3 text-right">
                                       {entry.origin === "manual" && entry.status === "paid" ? (
