@@ -43,7 +43,10 @@ function ContasReceberPage() {
   const accounts = data?.accounts ?? [];
   const methods = data?.methods ?? [];
   const q = search.toLowerCase().trim();
-  const filtered = useMemo(() => accounts.filter((a: any) => !q || `${a.customer_name} ${a.description ?? ""}`.toLowerCase().includes(q)), [accounts, q]);
+  const filtered = useMemo(
+    () => accounts.filter((a: any) => a.status === "pending" && (!q || `${a.customer_name} ${a.description ?? ""}`.toLowerCase().includes(q))),
+    [accounts, q],
+  );
   const pending = accounts.filter((a: any) => a.status === "pending");
   const overdue = pending.filter((a: any) => a.due_date && a.due_date < todayISO());
   const paid = accounts.filter((a: any) => a.status === "paid");
@@ -76,7 +79,12 @@ function ContasReceberPage() {
     if (error) { toast.error(error.message); return; }
     toast.success("Recebimento registrado.");
     await Promise.all([
-      qc.invalidateQueries({ queryKey: ["np-receivables"] }), qc.invalidateQueries({ queryKey: ["np-sales"] }), qc.invalidateQueries({ queryKey: ["dashboard"] }), qc.invalidateQueries({ queryKey: ["caixa"] }),
+      qc.invalidateQueries({ queryKey: ["np-receivables"] }),
+      qc.invalidateQueries({ queryKey: ["np-sales"] }),
+      qc.invalidateQueries({ queryKey: ["np-revenues"] }),
+      qc.invalidateQueries({ queryKey: ["np-reports"] }),
+      qc.invalidateQueries({ queryKey: ["dashboard"] }),
+      qc.invalidateQueries({ queryKey: ["caixa"] }),
     ]);
   };
 
@@ -107,8 +115,8 @@ function ContasReceberPage() {
           <Button className="mt-5" onClick={() => save.mutate()} disabled={save.isPending}>Cadastrar</Button>
         </SectionCard>}
 
-        <SectionCard title="Contas e fiados" actions={<div className="w-72 max-w-full"><SearchBox value={search} onChange={setSearch} placeholder="Buscar por pessoa" /></div>}>
-          {isLoading ? <p className="text-sm text-muted-foreground">Carregando…</p> : filtered.length === 0 ? <EmptyState title="Nada a receber" description="As vendas fiadas e os valores cadastrados manualmente aparecerão aqui." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Pessoa</th><th className="px-4 py-3">Origem</th><th className="px-4 py-3">Vencimento</th><th className="px-4 py-3">Valor</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((row: any) => { const late = row.status === "pending" && !!row.due_date && row.due_date < todayISO(); return <tr key={row.id}><td className="px-4 py-3 font-medium">{row.customer_name}<p className="text-xs font-normal text-muted-foreground">{row.description || "-"}</p></td><td className="px-4 py-3 text-muted-foreground">{row.sale_id ? "Venda fiada" : "Manual"}</td><td className="px-4 py-3">{dateBR(row.due_date)}</td><td className="px-4 py-3 font-medium">{brl(row.amount)}</td><td className="px-4 py-3"><StatusPill status={row.status} overdue={late} /></td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2">{row.status === "pending" && <NativeSelect value="" onChange={(v) => receive(row, v)} className="h-8 w-44"><option value="">Registrar recebimento...</option>{methods.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</NativeSelect>}{isManager && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => remove(row)}><Trash2 className="h-4 w-4" /></Button>}</div></td></tr>; })}</tbody></table></TableShell>}
+        <SectionCard title="Contas e fiados pendentes" description="Ao registrar o recebimento, a conta sai desta lista automaticamente e permanece registrada no histórico financeiro." actions={<div className="w-72 max-w-full"><SearchBox value={search} onChange={setSearch} placeholder="Buscar por pessoa" /></div>}>
+          {isLoading ? <p className="text-sm text-muted-foreground">Carregando…</p> : filtered.length === 0 ? <EmptyState title="Nenhuma conta pendente" description="Novas vendas fiadas e valores a receber aparecerão aqui até serem pagos." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Pessoa</th><th className="px-4 py-3">Origem</th><th className="px-4 py-3">Vencimento</th><th className="px-4 py-3">Valor</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((row: any) => { const late = row.status === "pending" && !!row.due_date && row.due_date < todayISO(); return <tr key={row.id}><td className="px-4 py-3 font-medium">{row.customer_name}<p className="text-xs font-normal text-muted-foreground">{row.description || "-"}</p></td><td className="px-4 py-3 text-muted-foreground">{row.sale_id ? "Venda fiada" : "Manual"}</td><td className="px-4 py-3">{dateBR(row.due_date)}</td><td className="px-4 py-3 font-medium">{brl(row.amount)}</td><td className="px-4 py-3"><StatusPill status={row.status} overdue={late} /></td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2">{row.status === "pending" && <NativeSelect value="" onChange={(v) => receive(row, v)} className="h-8 w-44"><option value="">Registrar recebimento...</option>{methods.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</NativeSelect>}{isManager && <Button size="sm" variant="ghost" className="text-destructive" onClick={() => remove(row)}><Trash2 className="h-4 w-4" /></Button>}</div></td></tr>; })}</tbody></table></TableShell>}
         </SectionCard>
       </div>
     </AppLayout>
