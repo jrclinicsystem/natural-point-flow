@@ -4,12 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Minus, Plus, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { AppLayout, StatCard } from "@/components/AppLayout";
-import { EmptyState, Field, SearchBox, SectionCard, TableShell } from "@/components/NaturalPointUI";
+import { EmptyState, Field, SearchBox, SectionCard } from "@/components/NaturalPointUI";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
-import { brl, dateTimeBR, parseNumber, todayISO } from "@/lib/format";
+import { brl, parseNumber, todayISO } from "@/lib/format";
 
 export const Route = createFileRoute("/vendas")({
   head: () => ({ meta: [{ title: "Vendas | Natural Point" }] }),
@@ -49,21 +49,18 @@ function VendasPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["np-sales-workspace"],
     queryFn: async () => {
-      const [products, methods, sales] = await Promise.all([
+      const [products, methods] = await Promise.all([
         supabase.from("products").select("*").eq("is_active", true).order("category").order("name"),
         supabase.from("payment_methods").select("*").eq("is_active", true).order("sort_order"),
-        supabase.from("sales").select("id,sold_at,customer_name,weight_kg,subtotal,discount,total,status,sale_payments(amount,net_amount,payment_methods(name,kind))").order("sold_at", { ascending: false }).limit(40),
       ]);
       if (products.error) throw products.error;
       if (methods.error) throw methods.error;
-      if (sales.error) throw sales.error;
-      return { products: (products.data ?? []) as Product[], methods: (methods.data ?? []) as PaymentMethod[], sales: sales.data ?? [] };
+      return { products: (products.data ?? []) as Product[], methods: (methods.data ?? []) as PaymentMethod[] };
     },
   });
 
   const products = data?.products ?? [];
   const methods = data?.methods ?? [];
-  const sales = data?.sales ?? [];
   const weightProducts = products.filter((p) => p.sale_mode === "weight");
   const weightProduct = weightProducts[0];
   const sellableProducts = products.filter((p) => p.sale_mode === "unit" || p.sale_mode === "addon");
@@ -191,12 +188,6 @@ function VendasPage() {
     onError: (e) => toast.error((e as Error).message),
   });
 
-  const renderHistory = () => (
-    <SectionCard title="Histórico recente de vendas">
-      {sales.length === 0 ? <EmptyState title="Nenhuma venda registrada" description="A primeira venda finalizada aparecerá aqui automaticamente." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Data</th><th className="px-4 py-3">Cliente</th><th className="px-4 py-3">Pagamento</th><th className="px-4 py-3">Total</th></tr></thead><tbody className="divide-y divide-border">{sales.map((sale: any) => <tr key={sale.id}><td className="px-4 py-3">{dateTimeBR(sale.sold_at)}</td><td className="px-4 py-3">{sale.customer_name || "Balcão"}</td><td className="px-4 py-3 text-muted-foreground">{(sale.sale_payments ?? []).map((p: any) => p.payment_methods?.name).filter(Boolean).join(" + ") || "-"}</td><td className="px-4 py-3 font-medium">{brl(sale.total)}</td></tr>)}</tbody></table></TableShell>}
-    </SectionCard>
-  );
-
   return (
     <AppLayout title="Vendas" subtitle="PDV rápido: açaí + gelato por peso, adicionais e produtos por unidade">
       <div className="grid gap-4 sm:gap-6 xl:grid-cols-[1fr_360px]">
@@ -213,7 +204,6 @@ function VendasPage() {
             {isLoading ? <p className="text-sm text-muted-foreground">Carregando produtos…</p> : filteredProducts.length === 0 ? <EmptyState title="Nenhum produto disponível" description="Cadastre bebidas, complementos e outros itens na tela Estoque." /> : <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:grid-cols-3">{filteredProducts.map((p) => <button key={p.id} onClick={() => addProduct(p)} className="min-w-0 rounded-xl border border-border bg-card p-3 text-left transition hover:border-gold hover:shadow-sm sm:rounded-2xl sm:p-4"><div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><p className="truncate text-[13px] font-medium sm:text-sm">{p.name}</p><p className="mt-1 line-clamp-2 text-[10px] text-muted-foreground sm:text-xs">{p.category} · estoque {p.stock_qty} {p.unit}</p></div><span className="w-fit shrink-0 rounded-full bg-muted px-2 py-1 text-[9px] text-muted-foreground sm:text-[10px]">{p.sale_mode === "addon" ? "Adicional" : "Unidade"}</span></div><p className="mt-2 font-display text-base text-primary sm:mt-3 sm:text-lg">{p.sale_mode === "addon" && p.is_free_addon ? "Grátis" : brl(p.price)}</p></button>)}</div>}
           </SectionCard>
 
-          <div className="hidden xl:block">{renderHistory()}</div>
         </div>
 
         <aside className="space-y-3 sm:space-y-4 xl:sticky xl:top-24 xl:self-start">
@@ -267,8 +257,6 @@ function VendasPage() {
             <Button className="mt-4 h-11 w-full" disabled={createSale.isPending || total <= 0 || Math.abs(total - paid) > 0.01} onClick={() => createSale.mutate()}>{createSale.isPending ? "Finalizando…" : "Finalizar venda"}</Button>
           </SectionCard>
         </aside>
-
-        <div className="xl:hidden">{renderHistory()}</div>
       </div>
     </AppLayout>
   );
