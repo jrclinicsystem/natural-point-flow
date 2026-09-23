@@ -15,6 +15,16 @@ export const Route = createFileRoute("/contas-a-pagar")({
   component: ContasPagarPage,
 });
 
+function addMonthsISO(dateISO: string, months: number) {
+  const [year, month, day] = dateISO.split("-").map(Number);
+  const target = new Date(Date.UTC(year, month - 1 + months, 1));
+  const targetYear = target.getUTCFullYear();
+  const targetMonth = target.getUTCMonth();
+  const lastDay = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const safeDay = Math.min(day, lastDay);
+  return `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}-${String(safeDay).padStart(2, "0")}`;
+}
+
 function ContasPagarPage() {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
@@ -25,6 +35,8 @@ function ContasPagarPage() {
   const [amount, setAmount] = useState("");
   const [dueDate, setDueDate] = useState(todayISO());
   const [isFixed, setIsFixed] = useState(false);
+  const [isInstallment, setIsInstallment] = useState(false);
+  const [installments, setInstallments] = useState("2");
   const [notes, setNotes] = useState("");
 
   const { data, isLoading } = useQuery({
@@ -58,19 +70,62 @@ function ContasPagarPage() {
   const save = useMutation({
     mutationFn: async () => {
       const value = parseNumber(amount);
+      const installmentCount = isInstallment ? Number.parseInt(installments, 10) : 1;
+
       if (!description.trim()) throw new Error("Informe a descrição da conta.");
       if (value <= 0) throw new Error("Informe um valor válido.");
+      if (!dueDate) throw new Error("Informe o primeiro vencimento.");
+      if (isInstallment && (!Number.isInteger(installmentCount) || installmentCount < 2 || installmentCount > 60)) {
+        throw new Error("Informe uma quantidade de parcelas entre 2 e 60.");
+      }
+
       const { data: userData } = await supabase.auth.getUser();
-      const { error } = await supabase.from("accounts_payable").insert({
-        description: description.trim(), supplier: supplier.trim() || null, category_id: categoryId || null,
-        amount: value, due_date: dueDate, status: "pending", is_fixed: isFixed, notes: notes.trim() || null,
+      const common = {
+        supplier: supplier.trim() || null,
+        category_id: categoryId || null,
+        status: "pending",
         created_by: userData.user?.id ?? null,
+      };
+
+      if (installmentCount === 1) {
+        const { error } = await supabase.from("accounts_payable").insert({
+          ...common,
+          description: description.trim(),
+          amount: value,
+          due_date: dueDate,
+          is_fixed: isFixed,
+          notes: notes.trim() || null,
+        });
+        if (error) throw error;
+        return { installmentCount: 1 };
+      }
+
+      const totalCents = Math.round(value * 100);
+      const baseCents = Math.floor(totalCents / installmentCount);
+      const remainder = totalCents - baseCents * installmentCount;
+
+      const rows = Array.from({ length: installmentCount }, (_, index) => {
+        const installmentNumber = index + 1;
+        const installmentCents = baseCents + (index < remainder ? 1 : 0);
+        const installmentNote = `Parcela ${installmentNumber}/${installmentCount}`;
+
+        return {
+          ...common,
+          description: `${description.trim()} · Parcela ${installmentNumber}/${installmentCount}`,
+          amount: installmentCents / 100,
+          due_date: addMonthsISO(dueDate, index),
+          is_fixed: false,
+          notes: [notes.trim(), installmentNote].filter(Boolean).join(" · ") || null,
+        };
       });
+
+      const { error } = await supabase.from("accounts_payable").insert(rows);
       if (error) throw error;
+      return { installmentCount };
     },
-    onSuccess: async () => {
-      toast.success("Conta a pagar cadastrada.");
-      setDescription(""); setSupplier(""); setAmount(""); setNotes(""); setIsFixed(false); setShowForm(false);
+    onSuccess: async (result) => {
+      toast.success(result.installmentCount > 1 ? `Conta parcelada em ${result.installmentCount}x cadastrada.` : "Conta a pagar cadastrada.");
+      setDescription(""); setSupplier(""); setAmount(""); setNotes(""); setIsFixed(false); setIsInstallment(false); setInstallments("2"); setShowForm(false);
       await Promise.all([qc.invalidateQueries({ queryKey: ["np-payables"] }), qc.invalidateQueries({ queryKey: ["dashboard"] })]);
     },
     onError: (e) => toast.error((e as Error).message),
@@ -110,9 +165,22 @@ function ContasPagarPage() {
             <Field label="Fornecedor"><Input value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="Opcional" /></Field>
             <Field label="Categoria"><NativeSelect value={categoryId} onChange={setCategoryId}><option value="">Sem categoria</option>{categories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}</NativeSelect></Field>
             <Field label="Valor"><Input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0,00" /></Field>
-            <Field label="Vencimento"><Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
-            <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" checked={isFixed} onChange={(e) => setIsFixed(e.target.checked)} /> Conta fixa/recorrente</label>
+            <Field label={isInstallment ? "1º vencimento" : "Vencimento"}><Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
+            <label className="flex items-center gap-2 self-end pb-2 text-sm">
+              <input type="checkbox" checked={isFixed} onChange={(e) => { setIsFixed(e.target.checked); if (e.target.checked) setIsInstallment(false); }} />
+              Conta fixa/recorrente
+            </label>
+            <label className="flex items-center gap-2 self-end pb-2 text-sm">
+              <input type="checkbox" checked={isInstallment} onChange={(e) => { setIsInstallment(e.target.checked); if (e.target.checked) setIsFixed(false); }} />
+              Parcelar conta
+            </label>
+            {isInstallment && <Field label="Número de parcelas"><Input type="number" min={2} max={60} step={1} value={installments} onChange={(e) => setInstallments(e.target.value)} /></Field>}
           </div>
+          {isInstallment && parseNumber(amount) > 0 && Number.parseInt(installments, 10) >= 2 && (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Valor total {brl(parseNumber(amount))} em {Number.parseInt(installments, 10)} parcelas mensais, com o primeiro vencimento em {dateBR(dueDate)}.
+            </p>
+          )}
           <div className="mt-4"><Field label="Observações"><TextArea value={notes} onChange={setNotes} placeholder="Opcional" /></Field></div>
           <Button className="mt-5" onClick={() => save.mutate()} disabled={save.isPending}>Cadastrar conta</Button>
         </SectionCard>}
