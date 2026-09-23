@@ -85,7 +85,7 @@ function RelatoriosPage() {
           .order("paid_at"),
         supabase
           .from("expenses")
-          .select("id,expense_date,description,amount,status,expense_categories(name)")
+          .select("id,expense_date,description,amount,status,payment_method_id,payment_methods(name,kind),expense_categories(name)")
           .gte("expense_date", from)
           .lte("expense_date", to)
           .order("expense_date"),
@@ -177,14 +177,14 @@ function RelatoriosPage() {
   }, [entries, paidExpenses]);
 
   const byMethod = useMemo(() => {
-    const map = new Map<string, { name: string; gross: number; fees: number; net: number }>();
+    const map = new Map<string, { name: string; gross: number; fees: number; net: number; expenses: number; balance: number }>();
     for (const raw of data?.payments ?? []) {
       const p: any = raw;
       const sale = one(p.sales);
       if (sale?.status === "cancelled") continue;
       const method = one(p.payment_methods);
       const name = method?.name ?? "Outro";
-      const row = map.get(name) ?? { name, gross: 0, fees: 0, net: 0 };
+      const row = map.get(name) ?? { name, gross: 0, fees: 0, net: 0, expenses: 0, balance: 0 };
       const gross = Number(p.amount ?? 0);
       const fees = Number(p.fee_amount ?? 0);
       row.gross += gross;
@@ -197,14 +197,23 @@ function RelatoriosPage() {
       const method = one(receipt.payment_methods);
       const name = method?.name ?? "Outro";
       const amount = Number(receipt.amount ?? 0);
-      const row = map.get(name) ?? { name, gross: 0, fees: 0, net: 0 };
+      const row = map.get(name) ?? { name, gross: 0, fees: 0, net: 0, expenses: 0, balance: 0 };
       row.gross += amount;
       row.net += amount;
       map.set(name, row);
     }
-    return [...map.values()].sort((a, b) => b.gross - a.gross);
-  }, [data]);
-
+    for (const raw of paidExpenses) {
+      const expense: any = raw;
+      const method = one(expense.payment_methods);
+      const name = method?.name ?? "Outro";
+      const row = map.get(name) ?? { name, gross: 0, fees: 0, net: 0, expenses: 0, balance: 0 };
+      row.expenses += Number(expense.amount ?? 0);
+      map.set(name, row);
+    }
+    return [...map.values()]
+      .map((row) => ({ ...row, balance: row.net - row.expenses }))
+      .sort((a, b) => b.gross - a.gross);
+  }, [data, paidExpenses]);
   const salesNet = entries.filter((entry) => entry.type === "sale").reduce((sum, entry) => sum + entry.net, 0);
   const manualNet = entries.filter((entry) => entry.type === "manual").reduce((sum, entry) => sum + entry.net, 0);
   const totalEntries = salesNet + manualNet;
@@ -299,11 +308,12 @@ function RelatoriosPage() {
               <td>${escapeHtml(row.name)}</td>
               <td class="num">${escapeHtml(brl(row.gross))}</td>
               <td class="num fee">${escapeHtml(brl(row.fees))}</td>
-              <td class="num in">${escapeHtml(brl(row.net))}</td>
+              <td class="num out">${row.expenses ? "-" : ""}${escapeHtml(brl(row.expenses))}</td>
+              <td class="num ${row.balance >= 0 ? "in" : "out"}">${escapeHtml(brl(row.balance))}</td>
             </tr>`,
           )
           .join("")
-      : `<tr><td colspan="4" class="empty">Sem recebimentos no período.</td></tr>`;
+      : `<tr><td colspan="5" class="empty">Sem movimentações no período.</td></tr>`;
 
     printWindow.document.write(`<!doctype html>
 <html lang="pt-BR">
@@ -361,9 +371,9 @@ function RelatoriosPage() {
     </tbody></table></div>
   </div>
   <div class="section">
-    <h2>Recebimentos por forma de pagamento</h2>
-    <p>Comparativo entre valor bruto, taxa descontada e valor líquido efetivamente recebido.</p>
-    <table><thead><tr><th>Forma</th><th class="num">Bruto</th><th class="num">Taxas</th><th class="num">Líquido</th></tr></thead><tbody>${paymentTable}</tbody></table>
+    <h2>Saldo por forma de pagamento</h2>
+    <p>Entradas líquidas menos as despesas pagas na mesma forma de pagamento.</p>
+    <table><thead><tr><th>Forma</th><th class="num">Entradas</th><th class="num">Taxas</th><th class="num">Despesas</th><th class="num">Saldo</th></tr></thead><tbody>${paymentTable}</tbody></table>
   </div>
   <div class="footer">Natural Point · Relatório gerado automaticamente pelo sistema</div>
 <script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 180); });</script>
@@ -438,27 +448,27 @@ function RelatoriosPage() {
           )}
         </SectionCard>
 
-        <SectionCard title="Recebimentos por forma de pagamento" description="O valor líquido já considera a taxa configurada em cada forma de pagamento.">
+        <SectionCard title="Saldo por forma de pagamento" description="Entradas líquidas menos as despesas pagas na mesma forma. Uma despesa em Dinheiro, Pix, Débito ou Crédito reduz automaticamente o saldo daquela forma.">
           <TableShell>
             <table className="min-w-full text-sm">
               <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-                <tr><th className="px-4 py-3">Forma</th><th className="px-4 py-3">Bruto</th><th className="px-4 py-3">Taxas</th><th className="px-4 py-3">Líquido</th></tr>
+                <tr><th className="px-4 py-3">Forma</th><th className="px-4 py-3">Entradas</th><th className="px-4 py-3">Taxas</th><th className="px-4 py-3">Despesas</th><th className="px-4 py-3">Saldo</th></tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {byMethod.map((row) => (
                   <tr key={row.name}>
                     <td className="px-4 py-3 font-medium">{row.name}</td>
                     <td className="px-4 py-3">{brl(row.gross)}</td>
-                    <td className="px-4 py-3 text-destructive">{brl(row.fees)}</td>
-                    <td className="px-4 py-3 text-success">{brl(row.net)}</td>
+                    <td className="px-4 py-3 text-destructive">{row.fees > 0 ? `-${brl(row.fees)}` : brl(0)}</td>
+                    <td className="px-4 py-3 text-destructive">{row.expenses > 0 ? `-${brl(row.expenses)}` : brl(0)}</td>
+                    <td className={`px-4 py-3 font-semibold ${row.balance >= 0 ? "text-success" : "text-destructive"}`}>{brl(row.balance)}</td>
                   </tr>
                 ))}
-                {byMethod.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">Sem recebimentos no período.</td></tr>}
+                {byMethod.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Sem movimentações no período.</td></tr>}
               </tbody>
             </table>
           </TableShell>
         </SectionCard>
-
         <SectionCard title="Fechamentos de caixa" description="Conferência do dinheiro físico em cada caixa do período selecionado.">
           <TableShell>
             <table className="min-w-full text-sm">
