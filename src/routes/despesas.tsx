@@ -91,7 +91,12 @@ function DespesasPage() {
     onSuccess: async () => {
       toast.success("Despesa registrada.");
       setDescription(""); setSupplier(""); setAmount(""); setDueDate(""); setPaymentMethodId(""); setStatus("paid"); setShowForm(false);
-      await Promise.all([qc.invalidateQueries({ queryKey: ["np-expenses"] }), qc.invalidateQueries({ queryKey: ["dashboard"] })]);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["np-expenses"] }),
+        qc.invalidateQueries({ queryKey: ["dashboard"] }),
+        qc.invalidateQueries({ queryKey: ["caixa"] }),
+        qc.invalidateQueries({ queryKey: ["np-reports"] }),
+      ]);
     },
     onError: (e) => toast.error((e as Error).message),
   });
@@ -106,7 +111,12 @@ function DespesasPage() {
     const { error } = await supabase.from("expenses").delete().eq("id", row.id).eq("status", "pending");
     if (error) { toast.error(error.message); return; }
     toast.success("Despesa pendente excluída.");
-    await Promise.all([qc.invalidateQueries({ queryKey: ["np-expenses"] }), qc.invalidateQueries({ queryKey: ["dashboard"] })]);
+    await Promise.all([
+        qc.invalidateQueries({ queryKey: ["np-expenses"] }),
+        qc.invalidateQueries({ queryKey: ["dashboard"] }),
+        qc.invalidateQueries({ queryKey: ["caixa"] }),
+        qc.invalidateQueries({ queryKey: ["np-reports"] }),
+      ]);
   };
 
   const markPaid = async (row: any, methodId: string) => {
@@ -115,7 +125,12 @@ function DespesasPage() {
     const { error } = await supabase.from("expenses").update({ status: "paid", payment_method_id: methodId, paid_at: new Date().toISOString() }).eq("id", row.id).eq("status", "pending");
     if (error) { toast.error(error.message); return; }
     toast.success("Despesa marcada como paga.");
-    await Promise.all([qc.invalidateQueries({ queryKey: ["np-expenses"] }), qc.invalidateQueries({ queryKey: ["dashboard"] })]);
+    await Promise.all([
+        qc.invalidateQueries({ queryKey: ["np-expenses"] }),
+        qc.invalidateQueries({ queryKey: ["dashboard"] }),
+        qc.invalidateQueries({ queryKey: ["caixa"] }),
+        qc.invalidateQueries({ queryKey: ["np-reports"] }),
+      ]);
   };
 
   return (
