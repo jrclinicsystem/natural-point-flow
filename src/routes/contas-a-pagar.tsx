@@ -82,7 +82,11 @@ function ContasPagarPage() {
     if (error) { toast.error(error.message); return; }
     toast.success("Pagamento registrado e despesa gerada automaticamente.");
     await Promise.all([
-      qc.invalidateQueries({ queryKey: ["np-payables"] }), qc.invalidateQueries({ queryKey: ["np-expenses"] }), qc.invalidateQueries({ queryKey: ["dashboard"] }),
+      qc.invalidateQueries({ queryKey: ["np-payables"] }),
+      qc.invalidateQueries({ queryKey: ["np-expenses"] }),
+      qc.invalidateQueries({ queryKey: ["dashboard"] }),
+      qc.invalidateQueries({ queryKey: ["caixa"] }),
+      qc.invalidateQueries({ queryKey: ["np-reports"] }),
     ]);
   };
 
