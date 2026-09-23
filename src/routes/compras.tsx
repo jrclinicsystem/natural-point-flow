@@ -149,6 +149,7 @@ function ComprasPage() {
         qc.invalidateQueries({ queryKey: ["np-payables"] }),
         qc.invalidateQueries({ queryKey: ["dashboard"] }),
         qc.invalidateQueries({ queryKey: ["caixa"] }),
+        qc.invalidateQueries({ queryKey: ["np-reports"] }),
       ]);
     },
     onError: (e) => toast.error((e as Error).message),
