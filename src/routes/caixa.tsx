@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AppLayout, StatCard } from "@/components/AppLayout";
-import { EmptyState, Field, SectionCard, TableShell, TextArea } from "@/components/NaturalPointUI";
+import { EmptyState, Field, NativeSelect, SectionCard, TableShell, TextArea } from "@/components/NaturalPointUI";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
@@ -14,26 +14,82 @@ export const Route = createFileRoute("/caixa")({
   component: CaixaPage,
 });
 
+type CashMovementType = "withdrawal" | "supply";
+
 function CaixaPage() {
   const qc = useQueryClient();
   const [opening, setOpening] = useState("");
   const [counted, setCounted] = useState("");
   const [notes, setNotes] = useState("");
+  const [movementType, setMovementType] = useState<CashMovementType>("withdrawal");
+  const [movementAmount, setMovementAmount] = useState("");
+  const [movementReason, setMovementReason] = useState("");
   const today = todayISO();
 
   const { data, isLoading } = useQuery({
     queryKey: ["caixa", today],
     queryFn: async () => {
-      const [sessions, summary, cashPayments, cashExpenses, manualReceipts] = await Promise.all([
-        supabase.from("cash_sessions").select("*").order("opened_at", { ascending: false }).limit(20),
-        supabase.rpc("dashboard_summary", { _from: today, _to: today }),
-        supabase.from("sale_payments").select("id,amount,created_at,payment_methods!inner(name,kind),sales(customer_name)").eq("payment_methods.kind", "cash").gte("created_at", `${today}T00:00:00`).order("created_at", { ascending: false }),
-        supabase.from("expenses").select("id,description,amount,created_at,paid_at,payment_methods!inner(name,kind)").eq("status", "paid").eq("payment_methods.kind", "cash").eq("expense_date", today).order("created_at", { ascending: false }),
-        supabase.from("accounts_receivable").select("id,customer_name,amount,paid_at,payment_methods!inner(name,kind)").eq("status", "paid").is("sale_id", null).eq("payment_methods.kind", "cash").gte("paid_at", `${today}T00:00:00`).order("paid_at", { ascending: false }),
+      const sessions = await supabase.from("cash_sessions").select("*").order("opened_at", { ascending: false }).limit(20);
+      if (sessions.error) throw sessions.error;
+
+      const sessionRows = sessions.data ?? [];
+      const openSession = sessionRows.find((s: any) => s.status === "open") as any;
+      const sessionStart = openSession?.opened_at ?? `${today}T00:00:00`;
+
+      let expectedCash = 0;
+      if (openSession?.id) {
+        const expected = await supabase.rpc("cash_session_expected", { _session_id: openSession.id });
+        if (expected.error) throw expected.error;
+        expectedCash = Number(expected.data ?? openSession.opening_cash ?? 0);
+      }
+
+      const [cashPayments, cashExpenses, manualReceipts, cashMovements] = await Promise.all([
+        supabase
+          .from("sale_payments")
+          .select("id,amount,created_at,payment_methods!inner(name,kind),sales(customer_name)")
+          .eq("payment_methods.kind", "cash")
+          .gte("created_at", sessionStart)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("expenses")
+          .select("id,description,amount,created_at,paid_at,payment_methods!inner(name,kind)")
+          .eq("status", "paid")
+          .eq("payment_methods.kind", "cash")
+          .eq("expense_date", today)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("accounts_receivable")
+          .select("id,customer_name,amount,paid_at,payment_methods!inner(name,kind)")
+          .eq("status", "paid")
+          .is("sale_id", null)
+          .eq("payment_methods.kind", "cash")
+          .gte("paid_at", sessionStart)
+          .order("paid_at", { ascending: false }),
+        openSession?.id
+          ? supabase
+              .from("cash_movements")
+              .select("id,movement_type,amount,reason,created_at")
+              .eq("session_id", openSession.id)
+              .order("created_at", { ascending: false })
+          : Promise.resolve({ data: [], error: null }),
       ]);
-      for (const result of [sessions, summary, cashPayments, cashExpenses, manualReceipts]) if (result.error) throw result.error;
+
+      for (const result of [cashPayments, cashExpenses, manualReceipts, cashMovements]) {
+        if (result.error) throw result.error;
+      }
+
+      const filteredCashExpenses = (cashExpenses.data ?? []).filter((e: any) => {
+        const occurredAt = e.paid_at || e.created_at;
+        return !openSession?.opened_at || String(occurredAt) >= String(openSession.opened_at);
+      });
+
       return {
-        sessions: sessions.data ?? [], summary: summary.data ?? [], cashPayments: cashPayments.data ?? [], cashExpenses: cashExpenses.data ?? [], manualReceipts: manualReceipts.data ?? [],
+        sessions: sessionRows,
+        expectedCash,
+        cashPayments: cashPayments.data ?? [],
+        cashExpenses: filteredCashExpenses,
+        manualReceipts: manualReceipts.data ?? [],
+        cashMovements: cashMovements.data ?? [],
       };
     },
   });
@@ -41,8 +97,7 @@ function CaixaPage() {
   const sessions = data?.sessions ?? [];
   const open = sessions.find((s: any) => s.status === "open") as any;
   const latestClosed = sessions.find((s: any) => s.status === "closed") as any;
-  const metrics = useMemo(() => Object.fromEntries((data?.summary ?? []).map((r: any) => [r.metric, Number(r.value)])), [data]);
-  const expected = Number(metrics["cash"] ?? open?.opening_cash ?? 0);
+  const expected = open ? Number(data?.expectedCash ?? open.opening_cash ?? 0) : 0;
   const differencePreview = parseNumber(counted) - expected;
 
   const movements = useMemo(() => {
@@ -50,12 +105,39 @@ function CaixaPage() {
     for (const raw of data?.cashPayments ?? []) {
       const p: any = raw;
       const sale = Array.isArray(p.sales) ? p.sales[0] : p.sales;
-      rows.push({ id: `sp-${p.id}`, date: p.created_at, label: sale?.customer_name ? `Venda · ${sale.customer_name}` : "Venda em dinheiro", amount: Number(p.amount), type: "in" });
+      rows.push({
+        id: `sp-${p.id}`,
+        date: p.created_at,
+        label: sale?.customer_name ? `Venda · ${sale.customer_name}` : "Venda em dinheiro",
+        amount: Number(p.amount),
+        type: "in",
+      });
     }
-    for (const r of data?.manualReceipts ?? []) rows.push({ id: `ar-${r.id}`, date: r.paid_at, label: `Recebimento · ${r.customer_name}`, amount: Number(r.amount), type: "in" });
-    for (const e of data?.cashExpenses ?? []) rows.push({ id: `ex-${e.id}`, date: e.paid_at || e.created_at, label: e.description, amount: Number(e.amount), type: "out" });
+    for (const r of data?.manualReceipts ?? []) {
+      rows.push({ id: `ar-${r.id}`, date: r.paid_at, label: `Recebimento · ${r.customer_name}`, amount: Number(r.amount), type: "in" });
+    }
+    for (const e of data?.cashExpenses ?? []) {
+      rows.push({ id: `ex-${e.id}`, date: e.paid_at || e.created_at, label: `Despesa · ${e.description}`, amount: Number(e.amount), type: "out" });
+    }
+    for (const m of data?.cashMovements ?? []) {
+      const isSupply = m.movement_type === "supply";
+      rows.push({
+        id: `cm-${m.id}`,
+        date: m.created_at,
+        label: `${isSupply ? "Suprimento" : "Sangria"} · ${m.reason}`,
+        amount: Number(m.amount),
+        type: isSupply ? "in" : "out",
+      });
+    }
     return rows.sort((a, b) => String(b.date).localeCompare(String(a.date)));
   }, [data]);
+
+  const refreshCash = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["caixa"] }),
+      qc.invalidateQueries({ queryKey: ["dashboard"] }),
+    ]);
+  };
 
   const openCash = useMutation({
     mutationFn: async () => {
@@ -67,7 +149,32 @@ function CaixaPage() {
     onSuccess: async () => {
       toast.success("Caixa aberto.");
       setOpening("");
-      await Promise.all([qc.invalidateQueries({ queryKey: ["caixa"] }), qc.invalidateQueries({ queryKey: ["dashboard"] })]);
+      await refreshCash();
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+  const registerMovement = useMutation({
+    mutationFn: async () => {
+      if (!open?.id) throw new Error("Abra o caixa antes de registrar uma movimentação.");
+      const amount = parseNumber(movementAmount);
+      const reason = movementReason.trim();
+      if (amount <= 0) throw new Error("Informe um valor maior que zero.");
+      if (!reason) throw new Error("Informe o motivo da movimentação.");
+
+      const { error } = await supabase.rpc("register_cash_movement", {
+        _session_id: open.id,
+        _movement_type: movementType,
+        _amount: amount,
+        _reason: reason,
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      toast.success(movementType === "withdrawal" ? "Sangria registrada." : "Suprimento registrado.");
+      setMovementAmount("");
+      setMovementReason("");
+      await refreshCash();
     },
     onError: (e) => toast.error((e as Error).message),
   });
@@ -77,19 +184,26 @@ function CaixaPage() {
       if (!open?.id) throw new Error("Não há caixa aberto.");
       const value = parseNumber(counted);
       if (value < 0) throw new Error("Informe o valor contado fisicamente.");
-      const { error } = await supabase.rpc("close_cash", { _session_id: open.id, _counted_cash: value, _notes: notes.trim() || null });
+      const { error } = await supabase.rpc("close_cash", {
+        _session_id: open.id,
+        _counted_cash: value,
+        _notes: notes.trim() || null,
+      });
       if (error) throw error;
     },
     onSuccess: async () => {
       toast.success("Caixa fechado e conferido.");
-      setCounted(""); setNotes("");
-      await Promise.all([qc.invalidateQueries({ queryKey: ["caixa"] }), qc.invalidateQueries({ queryKey: ["dashboard"] })]);
+      setCounted("");
+      setNotes("");
+      setMovementAmount("");
+      setMovementReason("");
+      await refreshCash();
     },
     onError: (e) => toast.error((e as Error).message),
   });
 
   return (
-    <AppLayout title="Caixa" subtitle="Abertura, valor esperado, conferência e diferença do dia">
+    <AppLayout title="Caixa" subtitle="Abertura, movimentações, conferência e diferença do dinheiro físico">
       <div className="space-y-6">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Situação" value={open ? "Caixa aberto" : "Caixa fechado"} tone={open ? "positive" : "default"} />
@@ -100,19 +214,77 @@ function CaixaPage() {
 
         <div className="grid gap-6 lg:grid-cols-2">
           <SectionCard title="Abertura de caixa" description={open ? `Aberto em ${dateTimeBR(open.opened_at)}` : "Informe quanto existe em dinheiro físico no início do expediente."}>
-            <Field label="Dinheiro inicial"><Input inputMode="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} placeholder="Ex.: 200,00" disabled={!!open} /></Field>
-            <Button className="mt-4 w-full" disabled={!!open || openCash.isPending} onClick={() => openCash.mutate()}>{open ? "Caixa já está aberto" : "Abrir caixa"}</Button>
+            <Field label="Dinheiro inicial">
+              <Input inputMode="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} placeholder="Ex.: 200,00" disabled={!!open} />
+            </Field>
+            <Button className="mt-4 w-full" disabled={!!open || openCash.isPending} onClick={() => openCash.mutate()}>
+              {open ? "Caixa já está aberto" : "Abrir caixa"}
+            </Button>
           </SectionCard>
 
           <SectionCard title="Fechamento de caixa" description="Conte somente o dinheiro físico. O sistema compara com o valor esperado automaticamente.">
             <div className="space-y-3">
-              <Field label="Valor contado"><Input inputMode="decimal" value={counted} onChange={(e) => setCounted(e.target.value)} placeholder="0,00" disabled={!open} /></Field>
-              <div className="grid grid-cols-2 gap-3 rounded-2xl bg-muted/50 p-4 text-sm"><div><p className="text-xs text-muted-foreground">Esperado</p><p className="font-medium">{brl(expected)}</p></div><div><p className="text-xs text-muted-foreground">Diferença</p><p className={Math.abs(differencePreview) < 0.01 ? "font-medium text-success" : "font-medium text-destructive"}>{brl(differencePreview)}</p></div></div>
-              <Field label="Observação"><TextArea value={notes} onChange={setNotes} placeholder="Opcional: motivo de diferença, sangria manual etc." /></Field>
-              <Button className="w-full" disabled={!open || closeCash.isPending || counted.trim() === ""} onClick={() => closeCash.mutate()}>Fechar e conferir caixa</Button>
+              <Field label="Valor contado">
+                <Input inputMode="decimal" value={counted} onChange={(e) => setCounted(e.target.value)} placeholder="0,00" disabled={!open} />
+              </Field>
+              <div className="grid grid-cols-2 gap-3 rounded-2xl bg-muted/50 p-4 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Esperado</p>
+                  <p className="font-medium">{brl(expected)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Diferença</p>
+                  <p className={Math.abs(differencePreview) < 0.01 ? "font-medium text-success" : "font-medium text-destructive"}>{brl(differencePreview)}</p>
+                </div>
+              </div>
+              <Field label="Observação">
+                <TextArea value={notes} onChange={setNotes} placeholder="Opcional: motivo de diferença ou observação do fechamento." />
+              </Field>
+              <Button className="w-full" disabled={!open || closeCash.isPending || counted.trim() === ""} onClick={() => closeCash.mutate()}>
+                Fechar e conferir caixa
+              </Button>
             </div>
           </SectionCard>
         </div>
+
+        <SectionCard
+          title="Movimentar caixa"
+          description="Registre toda retirada ou entrada manual de dinheiro. Sangria não é lançada como despesa financeira."
+        >
+          <div className="grid gap-3 md:grid-cols-[180px_180px_1fr_auto] md:items-end">
+            <Field label="Tipo">
+              <NativeSelect value={movementType} onChange={(value) => setMovementType(value as CashMovementType)} disabled={!open}>
+                <option value="withdrawal">Sangria</option>
+                <option value="supply">Suprimento</option>
+              </NativeSelect>
+            </Field>
+            <Field label="Valor">
+              <Input
+                inputMode="decimal"
+                value={movementAmount}
+                onChange={(e) => setMovementAmount(e.target.value)}
+                placeholder="0,00"
+                disabled={!open}
+              />
+            </Field>
+            <Field label="Motivo">
+              <Input
+                value={movementReason}
+                onChange={(e) => setMovementReason(e.target.value)}
+                placeholder={movementType === "withdrawal" ? "Ex.: retirada para cofre" : "Ex.: reforço de troco"}
+                disabled={!open}
+              />
+            </Field>
+            <Button
+              className="w-full md:w-auto"
+              disabled={!open || registerMovement.isPending || !movementAmount.trim() || !movementReason.trim()}
+              onClick={() => registerMovement.mutate()}
+            >
+              {registerMovement.isPending ? "Registrando…" : movementType === "withdrawal" ? "Registrar sangria" : "Registrar suprimento"}
+            </Button>
+          </div>
+          {!open ? <p className="mt-3 text-xs text-muted-foreground">Abra o caixa para registrar sangrias ou suprimentos.</p> : null}
+        </SectionCard>
 
         {latestClosed ? (
           <SectionCard
@@ -143,8 +315,38 @@ function CaixaPage() {
           </SectionCard>
         ) : null}
 
-        <SectionCard title="Movimentações em dinheiro de hoje" description="Entradas e saídas que alteram o dinheiro físico do caixa.">
-          {isLoading ? <p className="text-sm text-muted-foreground">Carregando…</p> : movements.length === 0 ? <EmptyState title="Sem movimentações em dinheiro" description="Vendas em dinheiro, recebimentos de fiado em dinheiro e despesas pagas em dinheiro aparecerão aqui." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Horário</th><th className="px-4 py-3">Movimento</th><th className="px-4 py-3 text-right">Valor</th></tr></thead><tbody className="divide-y divide-border">{movements.map((m) => <tr key={m.id}><td className="px-4 py-3 text-muted-foreground">{dateTimeBR(m.date)}</td><td className="px-4 py-3">{m.label}</td><td className={`px-4 py-3 text-right font-medium ${m.type === "in" ? "text-success" : "text-destructive"}`}>{m.type === "in" ? "+" : "-"}{brl(m.amount)}</td></tr>)}</tbody></table></TableShell>}
+        <SectionCard title="Movimentações do caixa atual" description="Tudo que alterou o dinheiro físico desde a abertura deste caixa.">
+          {isLoading ? (
+            <p className="text-sm text-muted-foreground">Carregando…</p>
+          ) : movements.length === 0 ? (
+            <EmptyState
+              title="Sem movimentações em dinheiro"
+              description="Vendas em dinheiro, recebimentos, despesas em dinheiro, sangrias e suprimentos aparecerão aqui."
+            />
+          ) : (
+            <TableShell>
+              <table className="min-w-full text-sm">
+                <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3">Horário</th>
+                    <th className="px-4 py-3">Movimento</th>
+                    <th className="px-4 py-3 text-right">Valor</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {movements.map((m) => (
+                    <tr key={m.id}>
+                      <td className="px-4 py-3 text-muted-foreground">{dateTimeBR(m.date)}</td>
+                      <td className="px-4 py-3">{m.label}</td>
+                      <td className={`px-4 py-3 text-right font-medium ${m.type === "in" ? "text-success" : "text-destructive"}`}>
+                        {m.type === "in" ? "+" : "-"}{brl(m.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </TableShell>
+          )}
         </SectionCard>
 
         <SectionCard title="Histórico de fechamentos" description="Resultado dos caixas anteriores, incluindo esperado, contado e diferença.">
@@ -169,7 +371,9 @@ function CaixaPage() {
                       <td className="px-4 py-3">{brl(s.opening_cash)}</td>
                       <td className="px-4 py-3">{brl(s.expected_cash)}</td>
                       <td className="px-4 py-3">{brl(s.counted_cash)}</td>
-                      <td className={`px-4 py-3 font-medium ${Math.abs(Number(s.difference ?? 0)) < 0.01 ? "text-success" : "text-destructive"}`}>{brl(s.difference)}</td>
+                      <td className={`px-4 py-3 font-medium ${Math.abs(Number(s.difference ?? 0)) < 0.01 ? "text-success" : "text-destructive"}`}>
+                        {brl(s.difference)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
