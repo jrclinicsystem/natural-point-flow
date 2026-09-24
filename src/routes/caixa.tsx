@@ -6,6 +6,7 @@ import { AppLayout, StatCard } from "@/components/AppLayout";
 import { EmptyState, Field, NativeSelect, SectionCard, TableShell, TextArea } from "@/components/NaturalPointUI";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { brl, dateTimeBR, parseNumber, todayISO } from "@/lib/format";
 
@@ -18,12 +19,17 @@ type CashMovementType = "withdrawal" | "supply";
 
 function CaixaPage() {
   const qc = useQueryClient();
+  const { isManager } = useAuth();
   const [opening, setOpening] = useState("");
   const [counted, setCounted] = useState("");
   const [notes, setNotes] = useState("");
   const [movementType, setMovementType] = useState<CashMovementType>("withdrawal");
   const [movementAmount, setMovementAmount] = useState("");
   const [movementReason, setMovementReason] = useState("");
+  const [editSessionId, setEditSessionId] = useState("");
+  const [correctedCounted, setCorrectedCounted] = useState("");
+  const [correctionReason, setCorrectionReason] = useState("");
+  const [correctedNotes, setCorrectedNotes] = useState("");
   const today = todayISO();
 
   const { data, isLoading } = useQuery({
@@ -43,7 +49,7 @@ function CaixaPage() {
         expectedCash = Number(expected.data ?? openSession.opening_cash ?? 0);
       }
 
-      const [cashPayments, cashExpenses, manualReceipts, cashMovements] = await Promise.all([
+      const [cashPayments, cashExpenses, manualReceipts, cashMovements, corrections] = await Promise.all([
         supabase
           .from("sale_payments")
           .select("id,amount,created_at,payment_methods!inner(name,kind),sales(customer_name)")
@@ -72,9 +78,14 @@ function CaixaPage() {
               .eq("session_id", openSession.id)
               .order("created_at", { ascending: false })
           : Promise.resolve({ data: [], error: null }),
+        supabase
+          .from("cash_session_corrections")
+          .select("*")
+          .order("changed_at", { ascending: false })
+          .limit(100),
       ]);
 
-      for (const result of [cashPayments, cashExpenses, manualReceipts, cashMovements]) {
+      for (const result of [cashPayments, cashExpenses, manualReceipts, cashMovements, corrections]) {
         if (result.error) throw result.error;
       }
 
@@ -90,6 +101,7 @@ function CaixaPage() {
         cashExpenses: filteredCashExpenses,
         manualReceipts: manualReceipts.data ?? [],
         cashMovements: cashMovements.data ?? [],
+        corrections: corrections.data ?? [],
       };
     },
   });
@@ -99,6 +111,9 @@ function CaixaPage() {
   const latestClosed = sessions.find((s: any) => s.status === "closed") as any;
   const expected = open ? Number(data?.expectedCash ?? open.opening_cash ?? 0) : 0;
   const differencePreview = parseNumber(counted) - expected;
+  const editingSession = sessions.find((s: any) => s.id === editSessionId) as any;
+  const correctedDifferencePreview = editingSession ? parseNumber(correctedCounted) - Number(editingSession.expected_cash ?? 0) : 0;
+  const withdrawalTooHigh = movementType === "withdrawal" && parseNumber(movementAmount) > Math.max(expected, 0);
 
   const movements = useMemo(() => {
     const rows: Array<{ id: string; date: string; label: string; amount: number; type: "in" | "out" }> = [];
@@ -174,6 +189,35 @@ function CaixaPage() {
       toast.success(movementType === "withdrawal" ? "Sangria registrada." : "Suprimento registrado.");
       setMovementAmount("");
       setMovementReason("");
+      await refreshCash();
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
+
+
+  const correctClosure = useMutation({
+    mutationFn: async () => {
+      if (!isManager) throw new Error("Somente sócios ou administradores podem corrigir fechamentos.");
+      if (!editingSession?.id) throw new Error("Selecione um fechamento para corrigir.");
+      const value = parseNumber(correctedCounted);
+      const reason = correctionReason.trim();
+      if (value < 0 || correctedCounted.trim() === "") throw new Error("Informe o valor contado corrigido.");
+      if (!reason) throw new Error("Informe o motivo da correção.");
+
+      const { error } = await supabase.rpc("correct_cash_closure", {
+        _session_id: editingSession.id,
+        _corrected_counted_cash: value,
+        _reason: reason,
+        _corrected_notes: correctedNotes.trim() || null,
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      toast.success("Fechamento corrigido e registrado no histórico.");
+      setEditSessionId("");
+      setCorrectedCounted("");
+      setCorrectionReason("");
+      setCorrectedNotes("");
       await refreshCash();
     },
     onError: (e) => toast.error((e as Error).message),
@@ -277,13 +321,18 @@ function CaixaPage() {
             </Field>
             <Button
               className="w-full md:w-auto"
-              disabled={!open || registerMovement.isPending || !movementAmount.trim() || !movementReason.trim()}
+              disabled={!open || registerMovement.isPending || !movementAmount.trim() || !movementReason.trim() || withdrawalTooHigh}
               onClick={() => registerMovement.mutate()}
             >
               {registerMovement.isPending ? "Registrando…" : movementType === "withdrawal" ? "Registrar sangria" : "Registrar suprimento"}
             </Button>
           </div>
           {!open ? <p className="mt-3 text-xs text-muted-foreground">Abra o caixa para registrar sangrias ou suprimentos.</p> : null}
+          {open && movementType === "withdrawal" ? (
+            <p className={`mt-3 text-xs ${withdrawalTooHigh ? "text-destructive" : "text-muted-foreground"}`}>
+              Disponível para sangria: {brl(Math.max(expected, 0))}{withdrawalTooHigh ? " · o valor informado ultrapassa o dinheiro disponível." : ""}
+            </p>
+          ) : null}
         </SectionCard>
 
         {latestClosed ? (
@@ -349,6 +398,63 @@ function CaixaPage() {
           )}
         </SectionCard>
 
+
+        {editingSession ? (
+          <SectionCard
+            title="Corrigir fechamento"
+            description={`Correção auditada do caixa de ${editingSession.business_date ? editingSession.business_date.split("-").reverse().join("/") : dateTimeBR(editingSession.closed_at)}. O valor anterior continuará salvo no histórico.`}
+          >
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl bg-muted/50 p-4 text-sm">
+                <p className="text-xs text-muted-foreground">Esperado</p>
+                <p className="mt-1 font-medium">{brl(editingSession.expected_cash ?? 0)}</p>
+              </div>
+              <div className="rounded-2xl bg-muted/50 p-4 text-sm">
+                <p className="text-xs text-muted-foreground">Contado atual</p>
+                <p className="mt-1 font-medium">{brl(editingSession.counted_cash ?? 0)}</p>
+              </div>
+              <div className="rounded-2xl bg-muted/50 p-4 text-sm">
+                <p className="text-xs text-muted-foreground">Nova diferença</p>
+                <p className={`mt-1 font-medium ${Math.abs(correctedDifferencePreview) < 0.01 ? "text-success" : "text-destructive"}`}>{brl(correctedDifferencePreview)}</p>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <Field label="Valor contado corrigido">
+                <Input inputMode="decimal" value={correctedCounted} onChange={(e) => setCorrectedCounted(e.target.value)} placeholder="0,00" />
+              </Field>
+              <Field label="Motivo da correção">
+                <Input value={correctionReason} onChange={(e) => setCorrectionReason(e.target.value)} placeholder="Ex.: valor digitado incorretamente" />
+              </Field>
+            </div>
+            <div className="mt-3">
+              <Field label="Observação do fechamento">
+                <TextArea value={correctedNotes} onChange={setCorrectedNotes} placeholder="Opcional" />
+              </Field>
+            </div>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setEditSessionId("");
+                  setCorrectedCounted("");
+                  setCorrectionReason("");
+                  setCorrectedNotes("");
+                }}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                disabled={correctClosure.isPending || correctedCounted.trim() === "" || correctionReason.trim() === ""}
+                onClick={() => correctClosure.mutate()}
+              >
+                {correctClosure.isPending ? "Salvando…" : "Salvar correção"}
+              </Button>
+            </div>
+          </SectionCard>
+        ) : null}
+
         <SectionCard title="Histórico de fechamentos" description="Resultado dos caixas anteriores, incluindo esperado, contado e diferença.">
           {sessions.filter((s: any) => s.status === "closed").length === 0 ? (
             <EmptyState title="Nenhum caixa fechado" description="Assim que um caixa for fechado, o resultado ficará salvo aqui." />
@@ -362,6 +468,7 @@ function CaixaPage() {
                     <th className="px-4 py-3">Esperado</th>
                     <th className="px-4 py-3">Contado</th>
                     <th className="px-4 py-3">Diferença</th>
+                    {isManager ? <th className="px-4 py-3 text-right">Ação</th> : null}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -374,8 +481,62 @@ function CaixaPage() {
                       <td className={`px-4 py-3 font-medium ${Math.abs(Number(s.difference ?? 0)) < 0.01 ? "text-success" : "text-destructive"}`}>
                         {brl(s.difference)}
                       </td>
+                      {isManager ? (
+                        <td className="px-4 py-3 text-right">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setEditSessionId(s.id);
+                              setCorrectedCounted(String(s.counted_cash ?? ""));
+                              setCorrectionReason("");
+                              setCorrectedNotes(String(s.notes ?? ""));
+                            }}
+                          >
+                            Corrigir
+                          </Button>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </TableShell>
+          )}
+        </SectionCard>
+
+
+        <SectionCard title="Histórico de correções" description="Auditoria dos fechamentos alterados: valor anterior, novo valor, motivo, responsável e horário.">
+          {(data?.corrections ?? []).length === 0 ? (
+            <EmptyState title="Nenhuma correção registrada" description="Quando um fechamento for corrigido, a alteração aparecerá aqui sem apagar o valor anterior." />
+          ) : (
+            <TableShell>
+              <table className="min-w-full text-sm">
+                <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3">Data</th>
+                    <th className="px-4 py-3">Caixa</th>
+                    <th className="px-4 py-3">Alteração</th>
+                    <th className="px-4 py-3">Motivo</th>
+                    <th className="px-4 py-3">Responsável</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {(data?.corrections ?? []).map((item: any) => {
+                    const session = sessions.find((s: any) => s.id === item.session_id);
+                    return (
+                      <tr key={item.id}>
+                        <td className="px-4 py-3 text-muted-foreground">{dateTimeBR(item.changed_at)}</td>
+                        <td className="px-4 py-3">{session?.business_date ? session.business_date.split("-").reverse().join("/") : "-"}</td>
+                        <td className="px-4 py-3">
+                          {brl(item.previous_counted_cash ?? 0)} → <strong>{brl(item.corrected_counted_cash ?? 0)}</strong>
+                        </td>
+                        <td className="px-4 py-3">{item.reason}</td>
+                        <td className="px-4 py-3">{item.changed_by_name || "Usuário"}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </TableShell>
