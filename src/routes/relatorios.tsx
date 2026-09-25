@@ -251,6 +251,25 @@ function RelatoriosPage() {
       }))
       .sort((a, b) => b.gross - a.gross);
   }, [data, paidExpenses, totalSupplies, totalWithdrawals]);
+  const paymentRows = useMemo(() => {
+    const rows = byMethod.map((row) => ({ ...row, isWithdrawalSummary: false }));
+    if (totalWithdrawals <= 0) return rows;
+
+    const withdrawalRow = {
+      name: "Sangria",
+      gross: 0,
+      fees: 0,
+      net: 0,
+      expenses: 0,
+      withdrawals: totalWithdrawals,
+      supplies: 0,
+      balance: -totalWithdrawals,
+      isWithdrawalSummary: true,
+    };
+    const cashIndex = rows.findIndex((row) => row.name.toLocaleLowerCase("pt-BR") === "dinheiro");
+    rows.splice(cashIndex >= 0 ? cashIndex + 1 : rows.length, 0, withdrawalRow);
+    return rows;
+  }, [byMethod, totalWithdrawals]);
   const salesNet = entries.filter((entry) => entry.type === "sale").reduce((sum, entry) => sum + entry.net, 0);
   const manualNet = entries.filter((entry) => entry.type === "manual").reduce((sum, entry) => sum + entry.net, 0);
   const totalEntries = salesNet + manualNet;
@@ -364,16 +383,16 @@ function RelatoriosPage() {
           .join("")
       : `<tr><td colspan="6" class="empty">Sem movimentações no período.</td></tr>`;
 
-    const paymentTable = byMethod.length
-      ? byMethod
+    const paymentTable = paymentRows.length
+      ? paymentRows
           .map(
             (row) => `<tr>
-              <td>${escapeHtml(row.name)}</td>
-              <td class="num">${escapeHtml(brl(row.gross))}</td>
-              <td class="num fee">${escapeHtml(brl(row.fees))}</td>
-              <td class="num out">${row.expenses ? "-" : ""}${escapeHtml(brl(row.expenses))}</td>
+              <td><strong>${escapeHtml(row.name)}</strong>${row.isWithdrawalSummary ? "<br><small>Valor retirado para o cofre</small>" : ""}</td>
+              <td class="num">${row.isWithdrawalSummary ? "—" : escapeHtml(brl(row.gross))}</td>
+              <td class="num fee">${row.isWithdrawalSummary ? "—" : escapeHtml(brl(row.fees))}</td>
+              <td class="num out">${row.isWithdrawalSummary ? "—" : `${row.expenses ? "-" : ""}${escapeHtml(brl(row.expenses))}`}</td>
               <td class="num out">${row.withdrawals ? "-" : ""}${escapeHtml(brl(row.withdrawals))}</td>
-              <td class="num ${row.balance >= 0 ? "in" : "out"}">${escapeHtml(brl(row.balance))}</td>
+              <td class="num ${row.balance >= 0 ? "in" : "out"}">${row.isWithdrawalSummary ? "—" : escapeHtml(brl(row.balance))}</td>
             </tr>`,
           )
           .join("")
@@ -519,17 +538,20 @@ function RelatoriosPage() {
                 <tr><th className="px-4 py-3">Forma</th><th className="px-4 py-3">Entradas</th><th className="px-4 py-3">Taxas</th><th className="px-4 py-3">Despesas</th><th className="px-4 py-3">Sangrias</th><th className="px-4 py-3">Saldo</th></tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {byMethod.map((row) => (
-                  <tr key={row.name}>
-                    <td className="px-4 py-3 font-medium">{row.name}</td>
-                    <td className="px-4 py-3">{brl(row.gross)}</td>
-                    <td className="px-4 py-3 text-destructive">{row.fees > 0 ? `-${brl(row.fees)}` : brl(0)}</td>
-                    <td className="px-4 py-3 text-destructive">{row.expenses > 0 ? `-${brl(row.expenses)}` : brl(0)}</td>
+                {paymentRows.map((row) => (
+                  <tr key={row.name} className={row.isWithdrawalSummary ? "bg-amber-50/60" : undefined}>
+                    <td className="px-4 py-3 font-medium">
+                      {row.name}
+                      {row.isWithdrawalSummary ? <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">Valor retirado para o cofre</span> : null}
+                    </td>
+                    <td className="px-4 py-3">{row.isWithdrawalSummary ? "—" : brl(row.gross)}</td>
+                    <td className="px-4 py-3 text-destructive">{row.isWithdrawalSummary ? "—" : row.fees > 0 ? `-${brl(row.fees)}` : brl(0)}</td>
+                    <td className="px-4 py-3 text-destructive">{row.isWithdrawalSummary ? "—" : row.expenses > 0 ? `-${brl(row.expenses)}` : brl(0)}</td>
                     <td className="px-4 py-3 text-destructive">{row.withdrawals > 0 ? `-${brl(row.withdrawals)}` : brl(0)}</td>
-                    <td className={`px-4 py-3 font-semibold ${row.balance >= 0 ? "text-success" : "text-destructive"}`}>{brl(row.balance)}</td>
+                    <td className={`px-4 py-3 font-semibold ${row.balance >= 0 ? "text-success" : "text-destructive"}`}>{row.isWithdrawalSummary ? "—" : brl(row.balance)}</td>
                   </tr>
                 ))}
-                {byMethod.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Sem movimentações no período.</td></tr>}
+                {paymentRows.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Sem movimentações no período.</td></tr>}
               </tbody>
             </table>
           </TableShell>
