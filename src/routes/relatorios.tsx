@@ -66,7 +66,7 @@ function RelatoriosPage() {
     queryFn: async () => {
       const start = `${from}T00:00:00-03:00`;
       const end = `${to}T23:59:59.999-03:00`;
-      const [payments, manualReceipts, expenses, cashSessions] = await Promise.all([
+      const [payments, manualReceipts, expenses, cashMovements, cashSessions] = await Promise.all([
         supabase
           .from("sale_payments")
           .select("id,sale_id,payment_method_id,amount,fee_amount,net_amount,created_at,payment_methods!inner(name,kind),sales(customer_name,status,sold_at)")
@@ -90,6 +90,12 @@ function RelatoriosPage() {
           .lte("expense_date", to)
           .order("expense_date"),
         supabase
+          .from("cash_movements")
+          .select("id,movement_type,amount,reason,created_at,cash_sessions!inner(business_date)")
+          .gte("cash_sessions.business_date", from)
+          .lte("cash_sessions.business_date", to)
+          .order("created_at"),
+        supabase
           .from("cash_sessions")
           .select("*")
           .gte("business_date", from)
@@ -99,11 +105,13 @@ function RelatoriosPage() {
       if (payments.error) throw payments.error;
       if (manualReceipts.error) throw manualReceipts.error;
       if (expenses.error) throw expenses.error;
+      if (cashMovements.error) throw cashMovements.error;
       if (cashSessions.error) throw cashSessions.error;
       return {
         payments: payments.data ?? [],
         manualReceipts: manualReceipts.data ?? [],
         expenses: expenses.data ?? [],
+        cashMovements: cashMovements.data ?? [],
         cashSessions: cashSessions.data ?? [],
       };
     },
@@ -176,15 +184,33 @@ function RelatoriosPage() {
       .map((x) => ({ ...x, label: x.date.slice(8, 10) + "/" + x.date.slice(5, 7) }));
   }, [entries, paidExpenses]);
 
+  const cashMovements = data?.cashMovements ?? [];
+  const totalWithdrawals = cashMovements
+    .filter((movement: any) => movement.movement_type === "withdrawal")
+    .reduce((sum: number, movement: any) => sum + Number(movement.amount ?? 0), 0);
+  const totalSupplies = cashMovements
+    .filter((movement: any) => movement.movement_type === "supply")
+    .reduce((sum: number, movement: any) => sum + Number(movement.amount ?? 0), 0);
+
   const byMethod = useMemo(() => {
-    const map = new Map<string, { name: string; gross: number; fees: number; net: number; expenses: number; balance: number }>();
+    const emptyMethod = (name: string) => ({
+      name,
+      gross: 0,
+      fees: 0,
+      net: 0,
+      expenses: 0,
+      withdrawals: 0,
+      supplies: 0,
+      balance: 0,
+    });
+    const map = new Map<string, ReturnType<typeof emptyMethod>>();
     for (const raw of data?.payments ?? []) {
       const p: any = raw;
       const sale = one(p.sales);
       if (sale?.status === "cancelled") continue;
       const method = one(p.payment_methods);
       const name = method?.name ?? "Outro";
-      const row = map.get(name) ?? { name, gross: 0, fees: 0, net: 0, expenses: 0, balance: 0 };
+      const row = map.get(name) ?? emptyMethod(name);
       const gross = Number(p.amount ?? 0);
       const fees = Number(p.fee_amount ?? 0);
       row.gross += gross;
@@ -197,7 +223,7 @@ function RelatoriosPage() {
       const method = one(receipt.payment_methods);
       const name = method?.name ?? "Outro";
       const amount = Number(receipt.amount ?? 0);
-      const row = map.get(name) ?? { name, gross: 0, fees: 0, net: 0, expenses: 0, balance: 0 };
+      const row = map.get(name) ?? emptyMethod(name);
       row.gross += amount;
       row.net += amount;
       map.set(name, row);
@@ -206,14 +232,23 @@ function RelatoriosPage() {
       const expense: any = raw;
       const method = one(expense.payment_methods);
       const name = method?.name ?? "Outro";
-      const row = map.get(name) ?? { name, gross: 0, fees: 0, net: 0, expenses: 0, balance: 0 };
+      const row = map.get(name) ?? emptyMethod(name);
       row.expenses += Number(expense.amount ?? 0);
       map.set(name, row);
     }
+    if (totalWithdrawals > 0 || totalSupplies > 0) {
+      const cashRow = map.get("Dinheiro") ?? emptyMethod("Dinheiro");
+      cashRow.withdrawals += totalWithdrawals;
+      cashRow.supplies += totalSupplies;
+      map.set("Dinheiro", cashRow);
+    }
     return [...map.values()]
-      .map((row) => ({ ...row, balance: row.net - row.expenses }))
+      .map((row) => ({
+        ...row,
+        balance: row.net + row.supplies - row.expenses - row.withdrawals,
+      }))
       .sort((a, b) => b.gross - a.gross);
-  }, [data, paidExpenses]);
+  }, [data, paidExpenses, totalSupplies, totalWithdrawals]);
   const salesNet = entries.filter((entry) => entry.type === "sale").reduce((sum, entry) => sum + entry.net, 0);
   const manualNet = entries.filter((entry) => entry.type === "manual").reduce((sum, entry) => sum + entry.net, 0);
   const totalEntries = salesNet + manualNet;
@@ -240,6 +275,19 @@ function RelatoriosPage() {
         "0.00",
         (-Number(expense.amount)).toFixed(2),
       ]),
+      ...cashMovements.map((movement: any) => {
+        const session = one(movement.cash_sessions);
+        const isSupply = movement.movement_type === "supply";
+        const amount = Number(movement.amount ?? 0);
+        return [
+          isSupply ? "Suprimento" : "Sangria",
+          dateBR(session?.business_date || movement.created_at),
+          movement.reason || (isSupply ? "Suprimento de caixa" : "Sangria de caixa"),
+          (isSupply ? amount : -amount).toFixed(2),
+          "0.00",
+          (isSupply ? amount : -amount).toFixed(2),
+        ];
+      }),
     ];
     const csv = lines.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(";")).join("\n");
     const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
@@ -275,6 +323,19 @@ function RelatoriosPage() {
         net: Number(expense.amount ?? 0),
         direction: "out" as const,
       })),
+      ...cashMovements.map((movement: any) => {
+        const session = one(movement.cash_sessions);
+        const isSupply = movement.movement_type === "supply";
+        return {
+          date: session?.business_date || movement.created_at,
+          type: isSupply ? "Entrada · Suprimento" : "Saída · Sangria",
+          description: movement.reason || (isSupply ? "Suprimento de caixa" : "Sangria de caixa"),
+          gross: Number(movement.amount ?? 0),
+          fees: 0,
+          net: Number(movement.amount ?? 0),
+          direction: isSupply ? ("in" as const) : ("out" as const),
+        };
+      }),
     ].sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
     const summaryCards = [
@@ -309,11 +370,12 @@ function RelatoriosPage() {
               <td class="num">${escapeHtml(brl(row.gross))}</td>
               <td class="num fee">${escapeHtml(brl(row.fees))}</td>
               <td class="num out">${row.expenses ? "-" : ""}${escapeHtml(brl(row.expenses))}</td>
+              <td class="num out">${row.withdrawals ? "-" : ""}${escapeHtml(brl(row.withdrawals))}</td>
               <td class="num ${row.balance >= 0 ? "in" : "out"}">${escapeHtml(brl(row.balance))}</td>
             </tr>`,
           )
           .join("")
-      : `<tr><td colspan="5" class="empty">Sem movimentações no período.</td></tr>`;
+      : `<tr><td colspan="6" class="empty">Sem movimentações no período.</td></tr>`;
 
     printWindow.document.write(`<!doctype html>
 <html lang="pt-BR">
@@ -372,8 +434,8 @@ function RelatoriosPage() {
   </div>
   <div class="section">
     <h2>Saldo por forma de pagamento</h2>
-    <p>Entradas líquidas menos as despesas pagas na mesma forma de pagamento.</p>
-    <table><thead><tr><th>Forma</th><th class="num">Entradas</th><th class="num">Taxas</th><th class="num">Despesas</th><th class="num">Saldo</th></tr></thead><tbody>${paymentTable}</tbody></table>
+    <p>Entradas líquidas menos despesas e sangrias. Suprimentos aumentam somente o saldo em dinheiro.</p>
+    <table><thead><tr><th>Forma</th><th class="num">Entradas</th><th class="num">Taxas</th><th class="num">Despesas</th><th class="num">Sangrias</th><th class="num">Saldo</th></tr></thead><tbody>${paymentTable}</tbody></table>
   </div>
   <div class="footer">Natural Point · Relatório gerado automaticamente pelo sistema</div>
 <script>window.addEventListener('load', function () { setTimeout(function () { window.print(); }, 180); });</script>
@@ -448,11 +510,11 @@ function RelatoriosPage() {
           )}
         </SectionCard>
 
-        <SectionCard title="Saldo por forma de pagamento" description="Entradas líquidas menos as despesas pagas na mesma forma. Uma despesa em Dinheiro, Pix, Débito ou Crédito reduz automaticamente o saldo daquela forma.">
+        <SectionCard title="Saldo por forma de pagamento" description="Entradas líquidas menos despesas na mesma forma. Sangrias reduzem somente o dinheiro físico; suprimentos aumentam esse saldo.">
           <TableShell>
             <table className="min-w-full text-sm">
               <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-                <tr><th className="px-4 py-3">Forma</th><th className="px-4 py-3">Entradas</th><th className="px-4 py-3">Taxas</th><th className="px-4 py-3">Despesas</th><th className="px-4 py-3">Saldo</th></tr>
+                <tr><th className="px-4 py-3">Forma</th><th className="px-4 py-3">Entradas</th><th className="px-4 py-3">Taxas</th><th className="px-4 py-3">Despesas</th><th className="px-4 py-3">Sangrias</th><th className="px-4 py-3">Saldo</th></tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {byMethod.map((row) => (
@@ -461,10 +523,11 @@ function RelatoriosPage() {
                     <td className="px-4 py-3">{brl(row.gross)}</td>
                     <td className="px-4 py-3 text-destructive">{row.fees > 0 ? `-${brl(row.fees)}` : brl(0)}</td>
                     <td className="px-4 py-3 text-destructive">{row.expenses > 0 ? `-${brl(row.expenses)}` : brl(0)}</td>
+                    <td className="px-4 py-3 text-destructive">{row.withdrawals > 0 ? `-${brl(row.withdrawals)}` : brl(0)}</td>
                     <td className={`px-4 py-3 font-semibold ${row.balance >= 0 ? "text-success" : "text-destructive"}`}>{brl(row.balance)}</td>
                   </tr>
                 ))}
-                {byMethod.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">Sem movimentações no período.</td></tr>}
+                {byMethod.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Sem movimentações no período.</td></tr>}
               </tbody>
             </table>
           </TableShell>
