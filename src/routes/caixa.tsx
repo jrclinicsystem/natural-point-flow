@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AppLayout, StatCard } from "@/components/AppLayout";
 import { EmptyState, Field, NativeSelect, SectionCard, TableShell, TextArea } from "@/components/NaturalPointUI";
@@ -27,6 +27,7 @@ function CaixaPage() {
   const [movementAmount, setMovementAmount] = useState("");
   const [movementReason, setMovementReason] = useState("");
   const [editSessionId, setEditSessionId] = useState("");
+  const [correctedOpening, setCorrectedOpening] = useState("");
   const [correctedCounted, setCorrectedCounted] = useState("");
   const [correctionReason, setCorrectionReason] = useState("");
   const [correctedNotes, setCorrectedNotes] = useState("");
@@ -112,8 +113,18 @@ function CaixaPage() {
   const expected = open ? Number(data?.expectedCash ?? open.opening_cash ?? 0) : 0;
   const differencePreview = parseNumber(counted) - expected;
   const editingSession = sessions.find((s: any) => s.id === editSessionId) as any;
-  const correctedDifferencePreview = editingSession ? parseNumber(correctedCounted) - Number(editingSession.expected_cash ?? 0) : 0;
+  const correctedOpeningValue = editingSession ? parseNumber(correctedOpening) : 0;
+  const correctedExpectedPreview = editingSession
+    ? Number(editingSession.expected_cash ?? 0) - Number(editingSession.opening_cash ?? 0) + correctedOpeningValue
+    : 0;
+  const correctedDifferencePreview = editingSession ? parseNumber(correctedCounted) - correctedExpectedPreview : 0;
   const withdrawalTooHigh = movementType === "withdrawal" && parseNumber(movementAmount) > Math.max(expected, 0);
+
+  useEffect(() => {
+    if (!open && latestClosed?.counted_cash != null) {
+      setOpening((current) => current.trim() === "" ? String(latestClosed.counted_cash) : current);
+    }
+  }, [open, latestClosed?.id, latestClosed?.counted_cash]);
 
   const movements = useMemo(() => {
     const rows: Array<{ id: string; date: string; label: string; amount: number; type: "in" | "out" }> = [];
@@ -199,14 +210,17 @@ function CaixaPage() {
     mutationFn: async () => {
       if (!isManager) throw new Error("Somente sócios ou administradores podem corrigir fechamentos.");
       if (!editingSession?.id) throw new Error("Selecione um fechamento para corrigir.");
-      const value = parseNumber(correctedCounted);
+      const openingValue = parseNumber(correctedOpening);
+      const countedValue = parseNumber(correctedCounted);
       const reason = correctionReason.trim();
-      if (value < 0 || correctedCounted.trim() === "") throw new Error("Informe o valor contado corrigido.");
+      if (openingValue < 0 || correctedOpening.trim() === "") throw new Error("Informe o valor inicial corrigido.");
+      if (countedValue < 0 || correctedCounted.trim() === "") throw new Error("Informe o valor contado corrigido.");
       if (!reason) throw new Error("Informe o motivo da correção.");
 
-      const { error } = await supabase.rpc("correct_cash_closure", {
+      const { error } = await supabase.rpc("correct_cash_session", {
         _session_id: editingSession.id,
-        _corrected_counted_cash: value,
+        _corrected_opening_cash: openingValue,
+        _corrected_counted_cash: countedValue,
         _reason: reason,
         _corrected_notes: correctedNotes.trim() || null,
       });
@@ -215,6 +229,7 @@ function CaixaPage() {
     onSuccess: async () => {
       toast.success("Fechamento corrigido e registrado no histórico.");
       setEditSessionId("");
+      setCorrectedOpening("");
       setCorrectedCounted("");
       setCorrectionReason("");
       setCorrectedNotes("");
@@ -404,10 +419,14 @@ function CaixaPage() {
             title="Corrigir fechamento"
             description={`Correção auditada do caixa de ${editingSession.business_date ? editingSession.business_date.split("-").reverse().join("/") : dateTimeBR(editingSession.closed_at)}. O valor anterior continuará salvo no histórico.`}
           >
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-4">
               <div className="rounded-2xl bg-muted/50 p-4 text-sm">
-                <p className="text-xs text-muted-foreground">Esperado</p>
-                <p className="mt-1 font-medium">{brl(editingSession.expected_cash ?? 0)}</p>
+                <p className="text-xs text-muted-foreground">Inicial atual</p>
+                <p className="mt-1 font-medium">{brl(editingSession.opening_cash ?? 0)}</p>
+              </div>
+              <div className="rounded-2xl bg-muted/50 p-4 text-sm">
+                <p className="text-xs text-muted-foreground">Novo esperado</p>
+                <p className="mt-1 font-medium">{brl(correctedExpectedPreview)}</p>
               </div>
               <div className="rounded-2xl bg-muted/50 p-4 text-sm">
                 <p className="text-xs text-muted-foreground">Contado atual</p>
@@ -418,7 +437,10 @@ function CaixaPage() {
                 <p className={`mt-1 font-medium ${Math.abs(correctedDifferencePreview) < 0.01 ? "text-success" : "text-destructive"}`}>{brl(correctedDifferencePreview)}</p>
               </div>
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <Field label="Valor inicial corrigido">
+                <Input inputMode="decimal" value={correctedOpening} onChange={(e) => setCorrectedOpening(e.target.value)} placeholder="0,00" />
+              </Field>
               <Field label="Valor contado corrigido">
                 <Input inputMode="decimal" value={correctedCounted} onChange={(e) => setCorrectedCounted(e.target.value)} placeholder="0,00" />
               </Field>
@@ -437,6 +459,7 @@ function CaixaPage() {
                 variant="outline"
                 onClick={() => {
                   setEditSessionId("");
+                  setCorrectedOpening("");
                   setCorrectedCounted("");
                   setCorrectionReason("");
                   setCorrectedNotes("");
@@ -446,7 +469,7 @@ function CaixaPage() {
               </Button>
               <Button
                 type="button"
-                disabled={correctClosure.isPending || correctedCounted.trim() === "" || correctionReason.trim() === ""}
+                disabled={correctClosure.isPending || correctedOpening.trim() === "" || correctedCounted.trim() === "" || correctionReason.trim() === ""}
                 onClick={() => correctClosure.mutate()}
               >
                 {correctClosure.isPending ? "Salvando…" : "Salvar correção"}
@@ -489,6 +512,7 @@ function CaixaPage() {
                             variant="outline"
                             onClick={() => {
                               setEditSessionId(s.id);
+                              setCorrectedOpening(String(s.opening_cash ?? ""));
                               setCorrectedCounted(String(s.counted_cash ?? ""));
                               setCorrectionReason("");
                               setCorrectedNotes(String(s.notes ?? ""));
@@ -530,7 +554,13 @@ function CaixaPage() {
                         <td className="px-4 py-3 text-muted-foreground">{dateTimeBR(item.changed_at)}</td>
                         <td className="px-4 py-3">{session?.business_date ? session.business_date.split("-").reverse().join("/") : "-"}</td>
                         <td className="px-4 py-3">
-                          {brl(item.previous_counted_cash ?? 0)} → <strong>{brl(item.corrected_counted_cash ?? 0)}</strong>
+                          {item.previous_opening_cash != null || item.corrected_opening_cash != null ? (
+                            <>
+                              Inicial: {brl(item.previous_opening_cash ?? 0)} → <strong>{brl(item.corrected_opening_cash ?? 0)}</strong>
+                              <br />
+                            </>
+                          ) : null}
+                          Contado: {brl(item.previous_counted_cash ?? 0)} → <strong>{brl(item.corrected_counted_cash ?? 0)}</strong>
                         </td>
                         <td className="px-4 py-3">{item.reason}</td>
                         <td className="px-4 py-3">{item.changed_by_name || "Usuário"}</td>
