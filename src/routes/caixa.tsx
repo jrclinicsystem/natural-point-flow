@@ -162,6 +162,7 @@ function CaixaPage() {
     await Promise.all([
       qc.invalidateQueries({ queryKey: ["caixa"] }),
       qc.invalidateQueries({ queryKey: ["dashboard"] }),
+      qc.invalidateQueries({ queryKey: ["np-reports"] }),
     ]);
   };
 
