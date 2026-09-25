@@ -115,6 +115,8 @@ function RelatoriosPage() {
         cashSessions: cashSessions.data ?? [],
       };
     },
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
   const entries = useMemo<ReportEntry[]>(() => {
