@@ -91,7 +91,7 @@ function RelatoriosPage() {
           .order("expense_date"),
         supabase
           .from("cash_movements")
-          .select("id,movement_type,amount,reason,created_at,supply_source,created_by,cash_sessions!inner(business_date)")
+          .select("id,movement_type,amount,reason,created_at,supply_source,is_retrospective,created_by,cash_sessions!inner(business_date)")
           .gte("cash_sessions.business_date", from)
           .lte("cash_sessions.business_date", to)
           .order("created_at"),
@@ -313,7 +313,8 @@ function RelatoriosPage() {
         return [
           isSupply ? (movement.supply_source === "reserve" ? "Devolução da reserva" : "Suprimento externo") : "Sangria",
           dateBR(session?.business_date || movement.created_at),
-          movement.reason || (isSupply ? "Suprimento de caixa" : "Sangria de caixa"),
+          (movement.reason || (isSupply ? "Suprimento de caixa" : "Sangria de caixa")) +
+            (movement.is_retrospective ? ` [Registrada posteriormente em ${dateBR(movement.created_at)}]` : ""),
           (isSupply ? amount : -amount).toFixed(2),
           "0.00",
           (isSupply ? amount : -amount).toFixed(2),
@@ -359,7 +360,7 @@ function RelatoriosPage() {
         const isSupply = movement.movement_type === "supply";
         return {
           date: session?.business_date || movement.created_at,
-          type: isSupply ? (movement.supply_source === "reserve" ? "Entrada · Devolução da reserva" : "Entrada · Suprimento externo") : "Saída · Sangria",
+          type: isSupply ? (movement.supply_source === "reserve" ? (movement.is_retrospective ? "Entrada · Devolução regularizada" : "Entrada · Devolução da reserva") : "Entrada · Suprimento externo") : "Saída · Sangria",
           description: movement.reason || (isSupply ? "Suprimento de caixa" : "Sangria de caixa"),
           gross: Number(movement.amount ?? 0),
           fees: 0,
@@ -399,7 +400,7 @@ function RelatoriosPage() {
           const isWithdrawal = movement.movement_type === "withdrawal";
           const session = one(movement.cash_sessions);
           const actor = (data?.profiles ?? []).find((p: any) => p.id === movement.created_by);
-          return `<tr><td>${escapeHtml(dateBR(session?.business_date || movement.created_at))}</td><td>${escapeHtml(isWithdrawal ? "Sangria" : "Devolução ao caixa")}</td><td>${escapeHtml(movement.reason)}</td><td>${escapeHtml(actor?.full_name || actor?.email || String(movement.created_by ?? "").slice(0, 8))}</td><td class="num ${isWithdrawal ? "in" : "out"}">${isWithdrawal ? "+" : "-"}${escapeHtml(brl(movement.amount))}</td></tr>`;
+          return `<tr><td>${escapeHtml(dateBR(session?.business_date || movement.created_at))}</td><td>${escapeHtml(isWithdrawal ? "Sangria" : movement.is_retrospective ? "Devolução regularizada" : "Devolução ao caixa")}</td><td>${escapeHtml(movement.reason)}${movement.is_retrospective ? "<br><small>Registrada posteriormente: " + escapeHtml(dateBR(movement.created_at)) + "</small>" : ""}</td><td>${escapeHtml(actor?.full_name || actor?.email || String(movement.created_by ?? "").slice(0, 8))}</td><td class="num ${isWithdrawal ? "in" : "out"}">${isWithdrawal ? "+" : "-"}${escapeHtml(brl(movement.amount))}</td></tr>`;
         }).join("")
       : `<tr><td colspan="5" class="empty">Sem movimentações de reserva no período.</td></tr>`;
 
@@ -575,8 +576,8 @@ function RelatoriosPage() {
                   return (
                     <tr key={movement.id}>
                       <td className="px-4 py-3">{dateBR(session?.business_date || movement.created_at)}</td>
-                      <td className="px-4 py-3">{isWithdrawal ? "Sangria para reserva" : "Devolução ao caixa"}</td>
-                      <td className="px-4 py-3">{movement.reason}</td>
+                      <td className="px-4 py-3">{isWithdrawal ? "Sangria para reserva" : movement.is_retrospective ? "Devolução regularizada" : "Devolução ao caixa"}</td>
+                      <td className="px-4 py-3">{movement.reason}{movement.is_retrospective ? <span className="mt-1 block text-xs text-muted-foreground">Registrada posteriormente em {dateBR(movement.created_at)}</span> : null}</td>
                       <td className="px-4 py-3">{actor?.full_name || actor?.email || `Usuário ${String(movement.created_by ?? "").slice(0, 8)}`}</td>
                       <td className={`px-4 py-3 text-right font-medium ${isWithdrawal ? "text-success" : "text-destructive"}`}>{isWithdrawal ? "+" : "-"}{brl(movement.amount)}</td>
                     </tr>
