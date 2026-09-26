@@ -26,6 +26,9 @@ function CaixaPage() {
   const [movementType, setMovementType] = useState<CashMovementType>("withdrawal");
   const [movementAmount, setMovementAmount] = useState("");
   const [movementReason, setMovementReason] = useState("");
+  const [historySessionId, setHistorySessionId] = useState("");
+  const [historyAmount, setHistoryAmount] = useState("");
+  const [historyReason, setHistoryReason] = useState("");
   const [editSessionId, setEditSessionId] = useState("");
   const [correctedOpening, setCorrectedOpening] = useState("");
   const [correctedCounted, setCorrectedCounted] = useState("");
@@ -87,7 +90,7 @@ function CaixaPage() {
         supabase.rpc("cash_reserve_balance"),
         supabase
           .from("cash_movements")
-          .select("id,movement_type,amount,reason,created_at,supply_source,created_by,cash_sessions(business_date)")
+          .select("id,movement_type,amount,reason,created_at,supply_source,is_retrospective,created_by,cash_sessions(business_date)")
           .order("created_at", { ascending: false })
           .limit(100),
         isManager
@@ -133,6 +136,12 @@ function CaixaPage() {
   const withdrawalTooHigh = movementType === "withdrawal" && parseNumber(movementAmount) > Math.max(expected, 0);
   const reserveBalance = Number(data?.reserveBalance ?? 0);
   const returnTooHigh = movementType === "reserve_return" && parseNumber(movementAmount) > Math.max(reserveBalance, 0);
+  const historySession = sessions.find((s: any) => s.id === historySessionId && s.status === "closed") as any;
+  const historyValue = parseNumber(historyAmount);
+  const historyTooHigh = historyValue > Math.max(reserveBalance, 0);
+  const revisedHistoricalDifference = historySession
+    ? Number(historySession.counted_cash ?? 0) - Number(historySession.expected_cash ?? 0) - historyValue
+    : 0;
   const reserveMovements = (data?.reserveHistory ?? []).filter(
     (m: any) => m.movement_type === "withdrawal" || m.supply_source === "reserve",
   );
@@ -229,6 +238,30 @@ function CaixaPage() {
     onError: (e) => toast.error((e as Error).message),
   });
 
+
+  const reconcileReserveReturn = useMutation({
+    mutationFn: async () => {
+      if (!isManager) throw new Error("Somente sócios e administradores podem regularizar caixas anteriores.");
+      if (!historySession?.id) throw new Error("Selecione o caixa encerrado ao qual a reserva retornou.");
+      if (!historyAmount.trim() || historyValue <= 0) throw new Error("Informe um valor maior que zero.");
+      if (!historyReason.trim()) throw new Error("Informe o motivo e o contexto da devolução anterior.");
+      if (historyTooHigh) throw new Error("Valor superior à reserva registrada.");
+      const { error } = await supabase.rpc("register_cash_reserve_return_historical", {
+        _session_id: historySession.id,
+        _amount: historyValue,
+        _reason: historyReason.trim(),
+      });
+      if (error) throw error;
+    },
+    onSuccess: async () => {
+      toast.success("Devolução histórica registrada, com auditoria do fechamento.");
+      setHistorySessionId("");
+      setHistoryAmount("");
+      setHistoryReason("");
+      await refreshCash();
+    },
+    onError: (e) => toast.error((e as Error).message),
+  });
 
   const correctClosure = useMutation({
     mutationFn: async () => {
@@ -412,7 +445,10 @@ function CaixaPage() {
                     return (
                       <tr key={m.id}>
                         <td className="px-4 py-3 text-muted-foreground">{dateTimeBR(m.created_at)}</td>
-                        <td className="px-4 py-3">{isWithdrawal ? "Sangria para reserva" : "Devolução ao caixa"} · {m.reason}</td>
+                        <td className="px-4 py-3">
+                          {isWithdrawal ? "Sangria para reserva" : "Devolução ao caixa"} · {m.reason}
+                          {m.is_retrospective ? <span className="mt-0.5 block text-xs text-muted-foreground">Regularização referente ao caixa de {String((Array.isArray(m.cash_sessions) ? m.cash_sessions[0] : m.cash_sessions)?.business_date ?? "").split("-").reverse().join("/")}; registrada posteriormente.</span> : null}
+                        </td>
                         <td className="px-4 py-3 text-muted-foreground">{actorName}</td>
                         <td className={`px-4 py-3 text-right font-medium ${isWithdrawal ? "text-success" : "text-destructive"}`}>{isWithdrawal ? "+" : "-"}{brl(m.amount)}</td>
                       </tr>
@@ -423,6 +459,51 @@ function CaixaPage() {
             </TableShell>
           )}
         </SectionCard>
+
+        {isManager ? (
+          <SectionCard
+            title="Regularizar devolução de um caixa anterior"
+            description="Use somente se o dinheiro já saiu da reserva e voltou a um caixa que foi encerrado. O lançamento fica vinculado à data do caixa original, mantendo a data real do registro e uma correção auditada."
+          >
+            <div className="grid gap-3 md:grid-cols-[minmax(210px,1fr)_150px_minmax(210px,1.4fr)] md:items-end">
+              <Field label="Caixa em que o dinheiro voltou">
+                <NativeSelect value={historySessionId} onChange={setHistorySessionId}>
+                  <option value="">Selecione o fechamento</option>
+                  {sessions.filter((item: any) => item.status === "closed").map((item: any) => (
+                    <option key={item.id} value={item.id}>
+                      {item.business_date ? item.business_date.split("-").reverse().join("/") : dateTimeBR(item.closed_at)} · {brl(item.counted_cash)}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+              <Field label="Valor devolvido">
+                <Input inputMode="decimal" placeholder="Ex.: 50,00" value={historyAmount} onChange={(event) => setHistoryAmount(event.target.value)} />
+              </Field>
+              <Field label="Motivo e referência">
+                <Input placeholder="Ex.: R$ 50 da sangria usados como troco ontem" value={historyReason} onChange={(event) => setHistoryReason(event.target.value)} />
+              </Field>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Saldo registrado na reserva: {brl(reserveBalance)}. O dinheiro contado no fechamento não será alterado.
+              {historyTooHigh ? <span className="text-destructive"> O valor excede a reserva.</span> : null}
+            </p>
+            {historySession ? (
+              <div className="mt-3 grid gap-3 rounded-2xl border border-border bg-muted/35 p-4 text-sm sm:grid-cols-3">
+                <div><p className="text-xs text-muted-foreground">Esperado antes</p><p className="font-medium">{brl(historySession.expected_cash)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Esperado após o registro</p><p className="font-medium">{brl(Number(historySession.expected_cash ?? 0) + historyValue)}</p></div>
+                <div><p className="text-xs text-muted-foreground">Diferença após registro</p><p className={`font-medium ${Math.abs(revisedHistoricalDifference) < 0.01 ? "text-success" : "text-destructive"}`}>{brl(revisedHistoricalDifference)}</p></div>
+              </div>
+            ) : null}
+            <p className="mt-3 text-xs text-muted-foreground">Atenção: se houver divergência após registrar a devolução, confira também todas as despesas e a contagem física do fechamento anterior. Não altere a contagem sem conferência.</p>
+            <Button
+              className="mt-4"
+              disabled={reconcileReserveReturn.isPending || !historySession || !historyAmount.trim() || historyValue <= 0 || historyTooHigh || !historyReason.trim()}
+              onClick={() => reconcileReserveReturn.mutate()}
+            >
+              {reconcileReserveReturn.isPending ? "Regularizando…" : "Regularizar devolução no caixa anterior"}
+            </Button>
+          </SectionCard>
+        ) : null}
 
         {latestClosed ? (
           <SectionCard
