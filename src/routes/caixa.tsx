@@ -15,11 +15,11 @@ export const Route = createFileRoute("/caixa")({
   component: CaixaPage,
 });
 
-type CashMovementType = "withdrawal" | "supply";
+type CashMovementType = "withdrawal" | "supply" | "reserve_return";
 
 function CaixaPage() {
   const qc = useQueryClient();
-  const { isManager } = useAuth();
+  const { isManager, user, displayName } = useAuth();
   const [opening, setOpening] = useState("");
   const [counted, setCounted] = useState("");
   const [notes, setNotes] = useState("");
@@ -34,7 +34,7 @@ function CaixaPage() {
   const today = todayISO();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["caixa", today],
+    queryKey: ["caixa", today, isManager],
     queryFn: async () => {
       const sessions = await supabase.from("cash_sessions").select("*").order("opened_at", { ascending: false }).limit(20);
       if (sessions.error) throw sessions.error;
@@ -50,7 +50,7 @@ function CaixaPage() {
         expectedCash = Number(expected.data ?? openSession.opening_cash ?? 0);
       }
 
-      const [cashPayments, cashExpenses, manualReceipts, cashMovements, corrections] = await Promise.all([
+      const [cashPayments, cashExpenses, manualReceipts, cashMovements, corrections, reserve, reserveHistory, profiles] = await Promise.all([
         supabase
           .from("sale_payments")
           .select("id,amount,created_at,payment_methods!inner(name,kind),sales(customer_name)")
@@ -75,7 +75,7 @@ function CaixaPage() {
         openSession?.id
           ? supabase
               .from("cash_movements")
-              .select("id,movement_type,amount,reason,created_at")
+              .select("id,movement_type,amount,reason,created_at,supply_source")
               .eq("session_id", openSession.id)
               .order("created_at", { ascending: false })
           : Promise.resolve({ data: [], error: null }),
@@ -84,9 +84,18 @@ function CaixaPage() {
           .select("*")
           .order("changed_at", { ascending: false })
           .limit(100),
+        supabase.rpc("cash_reserve_balance"),
+        supabase
+          .from("cash_movements")
+          .select("id,movement_type,amount,reason,created_at,supply_source,created_by,cash_sessions(business_date)")
+          .order("created_at", { ascending: false })
+          .limit(100),
+        isManager
+          ? supabase.from("profiles").select("id,full_name,email")
+          : Promise.resolve({ data: [], error: null }),
       ]);
 
-      for (const result of [cashPayments, cashExpenses, manualReceipts, cashMovements, corrections]) {
+      for (const result of [cashPayments, cashExpenses, manualReceipts, cashMovements, corrections, reserve, reserveHistory, profiles]) {
         if (result.error) throw result.error;
       }
 
@@ -103,6 +112,9 @@ function CaixaPage() {
         manualReceipts: manualReceipts.data ?? [],
         cashMovements: cashMovements.data ?? [],
         corrections: corrections.data ?? [],
+        reserveBalance: Number(reserve.data ?? 0),
+        reserveHistory: reserveHistory.data ?? [],
+        profiles: profiles.data ?? [],
       };
     },
   });
@@ -119,6 +131,11 @@ function CaixaPage() {
     : 0;
   const correctedDifferencePreview = editingSession ? parseNumber(correctedCounted) - correctedExpectedPreview : 0;
   const withdrawalTooHigh = movementType === "withdrawal" && parseNumber(movementAmount) > Math.max(expected, 0);
+  const reserveBalance = Number(data?.reserveBalance ?? 0);
+  const returnTooHigh = movementType === "reserve_return" && parseNumber(movementAmount) > Math.max(reserveBalance, 0);
+  const reserveMovements = (data?.reserveHistory ?? []).filter(
+    (m: any) => m.movement_type === "withdrawal" || m.supply_source === "reserve",
+  );
 
   useEffect(() => {
     if (!open && latestClosed?.counted_cash != null) {
@@ -150,7 +167,7 @@ function CaixaPage() {
       rows.push({
         id: `cm-${m.id}`,
         date: m.created_at,
-        label: `${isSupply ? "Suprimento" : "Sangria"} · ${m.reason}`,
+        label: `${isSupply ? (m.supply_source === "reserve" ? "Devolução da reserva" : "Suprimento externo") : "Sangria"} · ${m.reason}`,
         amount: Number(m.amount),
         type: isSupply ? "in" : "out",
       });
@@ -189,16 +206,22 @@ function CaixaPage() {
       if (amount <= 0) throw new Error("Informe um valor maior que zero.");
       if (!reason) throw new Error("Informe o motivo da movimentação.");
 
-      const { error } = await supabase.rpc("register_cash_movement", {
-        _session_id: open.id,
-        _movement_type: movementType,
-        _amount: amount,
-        _reason: reason,
-      });
+      const { error } = movementType === "reserve_return"
+        ? await supabase.rpc("register_cash_reserve_return", {
+            _session_id: open.id,
+            _amount: amount,
+            _reason: reason,
+          })
+        : await supabase.rpc("register_cash_movement", {
+            _session_id: open.id,
+            _movement_type: movementType,
+            _amount: amount,
+            _reason: reason,
+          });
       if (error) throw error;
     },
     onSuccess: async () => {
-      toast.success(movementType === "withdrawal" ? "Sangria registrada." : "Suprimento registrado.");
+      toast.success(movementType === "withdrawal" ? "Sangria registrada na reserva." : movementType === "reserve_return" ? "Dinheiro devolvido da reserva ao caixa." : "Suprimento externo registrado.");
       setMovementAmount("");
       setMovementReason("");
       await refreshCash();
@@ -265,11 +288,12 @@ function CaixaPage() {
   return (
     <AppLayout title="Caixa" subtitle="Abertura, movimentações, conferência e diferença do dinheiro físico">
       <div className="space-y-6">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <StatCard label="Situação" value={open ? "Caixa aberto" : "Caixa fechado"} tone={open ? "positive" : "default"} />
           <StatCard label="Valor inicial" value={brl(open?.opening_cash ?? 0)} />
           <StatCard label="Esperado agora" value={brl(expected)} tone="gold" />
           <StatCard label="Última diferença" value={brl(latestClosed?.difference ?? 0)} tone={Number(latestClosed?.difference ?? 0) === 0 ? "positive" : "negative"} />
+          <StatCard label="Reserva guardada" value={brl(reserveBalance)} tone="gold" />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
@@ -309,13 +333,14 @@ function CaixaPage() {
 
         <SectionCard
           title="Movimentar caixa"
-          description="Registre toda retirada ou entrada manual de dinheiro. Sangria não é lançada como despesa financeira."
+          description="Sangria guarda dinheiro na reserva. Devolução traz dinheiro da reserva ao caixa. Suprimento externo não usa a reserva. Nenhuma dessas movimentações é receita."
         >
           <div className="grid gap-3 md:grid-cols-[180px_180px_1fr_auto] md:items-end">
             <Field label="Tipo">
               <NativeSelect value={movementType} onChange={(value) => setMovementType(value as CashMovementType)} disabled={!open}>
                 <option value="withdrawal">Sangria</option>
-                <option value="supply">Suprimento</option>
+                <option value="reserve_return">Devolver da reserva</option>
+                <option value="supply">Suprimento externo</option>
               </NativeSelect>
             </Field>
             <Field label="Valor">
@@ -331,24 +356,72 @@ function CaixaPage() {
               <Input
                 value={movementReason}
                 onChange={(e) => setMovementReason(e.target.value)}
-                placeholder={movementType === "withdrawal" ? "Ex.: retirada para cofre" : "Ex.: reforço de troco"}
+                placeholder={movementType === "withdrawal" ? "Ex.: retirada para cofre" : movementType === "reserve_return" ? "Ex.: troco devolvido do cofre" : "Ex.: aporte de dinheiro externo"}
                 disabled={!open}
               />
             </Field>
             <Button
               className="w-full md:w-auto"
-              disabled={!open || registerMovement.isPending || !movementAmount.trim() || !movementReason.trim() || withdrawalTooHigh}
+              disabled={!open || registerMovement.isPending || !movementAmount.trim() || !movementReason.trim() || withdrawalTooHigh || returnTooHigh}
               onClick={() => registerMovement.mutate()}
             >
-              {registerMovement.isPending ? "Registrando…" : movementType === "withdrawal" ? "Registrar sangria" : "Registrar suprimento"}
+              {registerMovement.isPending ? "Registrando…" : movementType === "withdrawal" ? "Registrar sangria" : movementType === "reserve_return" ? "Devolver ao caixa" : "Registrar suprimento"}
             </Button>
           </div>
-          {!open ? <p className="mt-3 text-xs text-muted-foreground">Abra o caixa para registrar sangrias ou suprimentos.</p> : null}
+          {!open ? <p className="mt-3 text-xs text-muted-foreground">Abra o caixa para registrar sangrias, devoluções e suprimentos. Não lance novamente no caixa de hoje uma devolução feita num caixa anterior: isso exige conciliação do fechamento de origem.</p> : null}
           {open && movementType === "withdrawal" ? (
             <p className={`mt-3 text-xs ${withdrawalTooHigh ? "text-destructive" : "text-muted-foreground"}`}>
               Disponível para sangria: {brl(Math.max(expected, 0))}{withdrawalTooHigh ? " · o valor informado ultrapassa o dinheiro disponível." : ""}
             </p>
           ) : null}
+          {movementType === "reserve_return" ? (
+            <p className={`mt-3 text-xs ${returnTooHigh ? "text-destructive" : "text-muted-foreground"}`}>
+              Reserva registrada disponível: {brl(Math.max(reserveBalance, 0))}{returnTooHigh ? " · não é possível devolver mais do que está guardado." : ""}
+            </p>
+          ) : null}
+        </SectionCard>
+
+        <SectionCard title="Reserva de sangrias" description="Histórico do dinheiro separado do caixa. Cada sangria aumenta o guardado; cada devolução diminui. Os sócios podem conferir o horário, motivo e responsável.">
+          <div className="mb-4 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-muted/35 p-4">
+              <p className="text-xs text-muted-foreground">Saldo guardado registrado</p>
+              <p className="mt-1 font-display text-2xl">{brl(reserveBalance)}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-muted/35 p-4 text-xs text-muted-foreground">
+              A reserva corresponde às movimentações lançadas no sistema; dinheiro movimentado sem registro ainda precisa ser conciliado. Não contabilize a mesma devolução duas vezes.
+            </div>
+          </div>
+          {reserveMovements.length === 0 ? (
+            <EmptyState title="Nenhuma movimentação na reserva" description="As sangrias e devoluções registradas aparecerão aqui." />
+          ) : (
+            <TableShell>
+              <table className="min-w-full text-sm">
+                <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3">Registrado em</th>
+                    <th className="px-4 py-3">Operação e motivo</th>
+                    <th className="px-4 py-3">Responsável</th>
+                    <th className="px-4 py-3 text-right">Reserva</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {reserveMovements.map((m: any) => {
+                    const isWithdrawal = m.movement_type === "withdrawal";
+                    const actor = (data?.profiles ?? []).find((p: any) => p.id === m.created_by);
+                    const actorName = actor?.full_name || actor?.email || (m.created_by === user?.id ? displayName : `Usuário ${String(m.created_by ?? "").slice(0, 8)}`);
+                    return (
+                      <tr key={m.id}>
+                        <td className="px-4 py-3 text-muted-foreground">{dateTimeBR(m.created_at)}</td>
+                        <td className="px-4 py-3">{isWithdrawal ? "Sangria para reserva" : "Devolução ao caixa"} · {m.reason}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{actorName}</td>
+                        <td className={`px-4 py-3 text-right font-medium ${isWithdrawal ? "text-success" : "text-destructive"}`}>{isWithdrawal ? "+" : "-"}{brl(m.amount)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </TableShell>
+          )}
         </SectionCard>
 
         {latestClosed ? (
