@@ -16,7 +16,7 @@ export const Route = createFileRoute("/contas-a-pagar")({
 });
 
 function addMonthsISO(dateISO: string, months: number) {
-  const [year, month, day] = dateISO.split("-").map(Number);
+  const [year = 1970, month = 1, day = 1] = dateISO.split("-").map(Number);
   const target = new Date(Date.UTC(year, month - 1 + months, 1));
   const targetYear = target.getUTCFullYear();
   const targetMonth = target.getUTCMonth();
