@@ -66,7 +66,7 @@ function RelatoriosPage() {
     queryFn: async () => {
       const start = `${from}T00:00:00-03:00`;
       const end = `${to}T23:59:59.999-03:00`;
-      const [payments, manualReceipts, expenses, cashMovements, cashSessions] = await Promise.all([
+      const [payments, manualReceipts, expenses, cashMovements, cashSessions, reserve, profiles] = await Promise.all([
         supabase
           .from("sale_payments")
           .select("id,sale_id,payment_method_id,amount,fee_amount,net_amount,created_at,payment_methods!inner(name,kind),sales(customer_name,status,sold_at)")
@@ -91,7 +91,7 @@ function RelatoriosPage() {
           .order("expense_date"),
         supabase
           .from("cash_movements")
-          .select("id,movement_type,amount,reason,created_at,cash_sessions!inner(business_date)")
+          .select("id,movement_type,amount,reason,created_at,supply_source,created_by,cash_sessions!inner(business_date)")
           .gte("cash_sessions.business_date", from)
           .lte("cash_sessions.business_date", to)
           .order("created_at"),
@@ -101,18 +101,24 @@ function RelatoriosPage() {
           .gte("business_date", from)
           .lte("business_date", to)
           .order("business_date", { ascending: false }),
+        supabase.rpc("cash_reserve_balance"),
+        supabase.from("profiles").select("id,full_name,email"),
       ]);
       if (payments.error) throw payments.error;
       if (manualReceipts.error) throw manualReceipts.error;
       if (expenses.error) throw expenses.error;
       if (cashMovements.error) throw cashMovements.error;
       if (cashSessions.error) throw cashSessions.error;
+      if (reserve.error) throw reserve.error;
+      if (profiles.error) throw profiles.error;
       return {
         payments: payments.data ?? [],
         manualReceipts: manualReceipts.data ?? [],
         expenses: expenses.data ?? [],
         cashMovements: cashMovements.data ?? [],
         cashSessions: cashSessions.data ?? [],
+        reserveBalance: Number(reserve.data ?? 0),
+        profiles: profiles.data ?? [],
       };
     },
     refetchOnMount: "always",
@@ -193,6 +199,10 @@ function RelatoriosPage() {
   const totalSupplies = cashMovements
     .filter((movement: any) => movement.movement_type === "supply")
     .reduce((sum: number, movement: any) => sum + Number(movement.amount ?? 0), 0);
+  const reserveReturns = cashMovements.filter((movement: any) => movement.movement_type === "supply" && movement.supply_source === "reserve");
+  const totalReserveReturns = reserveReturns.reduce((sum: number, movement: any) => sum + Number(movement.amount ?? 0), 0);
+  const reserveTransactions = cashMovements.filter((movement: any) => movement.movement_type === "withdrawal" || movement.supply_source === "reserve");
+  const reserveBalance = Number(data?.reserveBalance ?? 0);
 
   const byMethod = useMemo(() => {
     const emptyMethod = (name: string) => ({
@@ -301,7 +311,7 @@ function RelatoriosPage() {
         const isSupply = movement.movement_type === "supply";
         const amount = Number(movement.amount ?? 0);
         return [
-          isSupply ? "Suprimento" : "Sangria",
+          isSupply ? (movement.supply_source === "reserve" ? "Devolução da reserva" : "Suprimento externo") : "Sangria",
           dateBR(session?.business_date || movement.created_at),
           movement.reason || (isSupply ? "Suprimento de caixa" : "Sangria de caixa"),
           (isSupply ? amount : -amount).toFixed(2),
@@ -349,7 +359,7 @@ function RelatoriosPage() {
         const isSupply = movement.movement_type === "supply";
         return {
           date: session?.business_date || movement.created_at,
-          type: isSupply ? "Entrada · Suprimento" : "Saída · Sangria",
+          type: isSupply ? (movement.supply_source === "reserve" ? "Entrada · Devolução da reserva" : "Entrada · Suprimento externo") : "Saída · Sangria",
           description: movement.reason || (isSupply ? "Suprimento de caixa" : "Sangria de caixa"),
           gross: Number(movement.amount ?? 0),
           fees: 0,
@@ -363,6 +373,7 @@ function RelatoriosPage() {
       ["Entradas líquidas", brl(totalEntries)],
       ["Saídas pagas", brl(totalExpenses)],
       ["Taxas", brl(totalFees)],
+      ["Reserva guardada (atual)", brl(reserveBalance)],
       ["Resultado líquido", brl(result)],
     ]
       .map(([label, value]) => `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`)
@@ -382,6 +393,15 @@ function RelatoriosPage() {
           )
           .join("")
       : `<tr><td colspan="6" class="empty">Sem movimentações no período.</td></tr>`;
+
+    const reserveTable = reserveTransactions.length
+      ? reserveTransactions.map((movement: any) => {
+          const isWithdrawal = movement.movement_type === "withdrawal";
+          const session = one(movement.cash_sessions);
+          const actor = (data?.profiles ?? []).find((p: any) => p.id === movement.created_by);
+          return `<tr><td>${escapeHtml(dateBR(session?.business_date || movement.created_at))}</td><td>${escapeHtml(isWithdrawal ? "Sangria" : "Devolução ao caixa")}</td><td>${escapeHtml(movement.reason)}</td><td>${escapeHtml(actor?.full_name || actor?.email || String(movement.created_by ?? "").slice(0, 8))}</td><td class="num ${isWithdrawal ? "in" : "out"}">${isWithdrawal ? "+" : "-"}${escapeHtml(brl(movement.amount))}</td></tr>`;
+        }).join("")
+      : `<tr><td colspan="5" class="empty">Sem movimentações de reserva no período.</td></tr>`;
 
     const paymentTable = paymentRows.length
       ? paymentRows
@@ -413,7 +433,7 @@ function RelatoriosPage() {
   h1 { margin: 0; font: 700 25px Georgia, serif; }
   .sub { margin-top: 5px; color: #75687a; font-size: 11px; }
   .period { text-align: right; font-size: 11px; color: #75687a; line-height: 1.5; }
-  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin: 18px 0; }
+  .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 9px; margin: 18px 0; }
   .metric { border: 1px solid #e8dfd5; border-radius: 12px; padding: 11px; background: #fff; }
   .metric span { display: block; color: #75687a; text-transform: uppercase; letter-spacing: .06em; font-size: 8px; font-weight: 700; }
   .metric strong { display: block; margin-top: 6px; font: 700 16px Georgia, serif; }
@@ -452,6 +472,11 @@ function RelatoriosPage() {
       <tr><td>Taxas descontadas</td><td class="num fee">${escapeHtml(brl(totalFees))}</td></tr>
       <tr><td class="result">Resultado líquido</td><td class="num result ${result >= 0 ? "in" : "out"}">${escapeHtml(brl(result))}</td></tr>
     </tbody></table></div>
+  </div>
+  <div class="section">
+    <h2>Reserva de sangrias</h2>
+    <p>Saldo registrado atual: ${escapeHtml(brl(reserveBalance))}. No período: guardado ${escapeHtml(brl(totalWithdrawals))}, devolvido ${escapeHtml(brl(totalReserveReturns))}. Transferências não são receitas nem despesas.</p>
+    <table><thead><tr><th>Data</th><th>Operação</th><th>Motivo</th><th>Responsável</th><th class="num">Reserva</th></tr></thead><tbody>${reserveTable}</tbody></table>
   </div>
   <div class="section">
     <h2>Saldo por forma de pagamento</h2>
@@ -531,6 +556,37 @@ function RelatoriosPage() {
           )}
         </SectionCard>
 
+        <SectionCard title="Reserva de sangrias" description="Movimentações de dinheiro entre o caixa e a reserva. O saldo atual considera todos os períodos; a tabela abaixo respeita o filtro selecionado.">
+          <div className="mb-4 grid gap-3 sm:grid-cols-3">
+            <StatCard label="Saldo atual guardado" value={brl(reserveBalance)} tone="gold" />
+            <StatCard label="Guardado no período" value={brl(totalWithdrawals)} />
+            <StatCard label="Devolvido no período" value={brl(totalReserveReturns)} />
+          </div>
+          <TableShell>
+            <table className="min-w-full text-sm">
+              <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
+                <tr><th className="px-4 py-3">Data</th><th className="px-4 py-3">Movimentação</th><th className="px-4 py-3">Motivo</th><th className="px-4 py-3">Responsável</th><th className="px-4 py-3 text-right">Reserva</th></tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {reserveTransactions.map((movement: any) => {
+                  const isWithdrawal = movement.movement_type === "withdrawal";
+                  const session = one(movement.cash_sessions);
+                  const actor = (data?.profiles ?? []).find((p: any) => p.id === movement.created_by);
+                  return (
+                    <tr key={movement.id}>
+                      <td className="px-4 py-3">{dateBR(session?.business_date || movement.created_at)}</td>
+                      <td className="px-4 py-3">{isWithdrawal ? "Sangria para reserva" : "Devolução ao caixa"}</td>
+                      <td className="px-4 py-3">{movement.reason}</td>
+                      <td className="px-4 py-3">{actor?.full_name || actor?.email || `Usuário ${String(movement.created_by ?? "").slice(0, 8)}`}</td>
+                      <td className={`px-4 py-3 text-right font-medium ${isWithdrawal ? "text-success" : "text-destructive"}`}>{isWithdrawal ? "+" : "-"}{brl(movement.amount)}</td>
+                    </tr>
+                  );
+                })}
+                {!reserveTransactions.length && <tr><td colSpan={5} className="px-4 py-7 text-center text-muted-foreground">Nenhuma movimentação da reserva neste período.</td></tr>}
+              </tbody>
+            </table>
+          </TableShell>
+        </SectionCard>
         <SectionCard title="Saldo por forma de pagamento" description="Entradas líquidas menos despesas na mesma forma. Sangrias reduzem somente o dinheiro físico; suprimentos aumentam esse saldo.">
           <TableShell>
             <table className="min-w-full text-sm">
