@@ -27,6 +27,9 @@ type ReportEntry = {
 
 const one = (value: any) => (Array.isArray(value) ? value[0] : value);
 
+// Sangria mostra o saldo líquido da reserva: retiradas menos devoluções.
+const reserveImpact = (amount: number) => amount > 0 ? `-${brl(amount)}` : amount < 0 ? `+${brl(-amount)}` : brl(0);
+
 const escapeHtml = (value: unknown) =>
   String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -203,6 +206,8 @@ function RelatoriosPage() {
   const totalReserveReturns = reserveReturns.reduce((sum: number, movement: any) => sum + Number(movement.amount ?? 0), 0);
   const reserveTransactions = cashMovements.filter((movement: any) => movement.movement_type === "withdrawal" || movement.supply_source === "reserve");
   const reserveBalance = Number(data?.reserveBalance ?? 0);
+  const netWithdrawals = Math.round((totalWithdrawals - totalReserveReturns) * 100) / 100;
+  const externalSupplies = Math.round((totalSupplies - totalReserveReturns) * 100) / 100;
 
   const byMethod = useMemo(() => {
     const emptyMethod = (name: string) => ({
@@ -248,10 +253,10 @@ function RelatoriosPage() {
       row.expenses += Number(expense.amount ?? 0);
       map.set(name, row);
     }
-    if (totalWithdrawals > 0 || totalSupplies > 0) {
+    if (netWithdrawals !== 0 || externalSupplies > 0) {
       const cashRow = map.get("Dinheiro") ?? emptyMethod("Dinheiro");
-      cashRow.withdrawals += totalWithdrawals;
-      cashRow.supplies += totalSupplies;
+      cashRow.withdrawals += netWithdrawals;
+      cashRow.supplies += externalSupplies;
       map.set("Dinheiro", cashRow);
     }
     return [...map.values()]
@@ -260,26 +265,26 @@ function RelatoriosPage() {
         balance: row.net + row.supplies - row.expenses - row.withdrawals,
       }))
       .sort((a, b) => b.gross - a.gross);
-  }, [data, paidExpenses, totalSupplies, totalWithdrawals]);
+  }, [data, paidExpenses, externalSupplies, netWithdrawals]);
   const paymentRows = useMemo(() => {
     const rows = byMethod.map((row) => ({ ...row, isWithdrawalSummary: false }));
-    if (totalWithdrawals <= 0) return rows;
+    if (netWithdrawals === 0) return rows;
 
     const withdrawalRow = {
-      name: "Sangria",
+      name: "Sangria líquida",
       gross: 0,
       fees: 0,
       net: 0,
       expenses: 0,
-      withdrawals: totalWithdrawals,
+      withdrawals: netWithdrawals,
       supplies: 0,
-      balance: -totalWithdrawals,
+      balance: -netWithdrawals,
       isWithdrawalSummary: true,
     };
     const cashIndex = rows.findIndex((row) => row.name.toLocaleLowerCase("pt-BR") === "dinheiro");
     rows.splice(cashIndex >= 0 ? cashIndex + 1 : rows.length, 0, withdrawalRow);
     return rows;
-  }, [byMethod, totalWithdrawals]);
+  }, [byMethod, netWithdrawals]);
   const salesNet = entries.filter((entry) => entry.type === "sale").reduce((sum, entry) => sum + entry.net, 0);
   const manualNet = entries.filter((entry) => entry.type === "manual").reduce((sum, entry) => sum + entry.net, 0);
   const totalEntries = salesNet + manualNet;
@@ -408,11 +413,11 @@ function RelatoriosPage() {
       ? paymentRows
           .map(
             (row) => `<tr>
-              <td><strong>${escapeHtml(row.name)}</strong>${row.isWithdrawalSummary ? "<br><small>Valor retirado para o cofre</small>" : ""}</td>
+              <td><strong>${escapeHtml(row.name)}</strong>${row.isWithdrawalSummary ? "<br><small>Retiradas menos devoluções da reserva</small>" : ""}</td>
               <td class="num">${row.isWithdrawalSummary ? "—" : escapeHtml(brl(row.gross))}</td>
               <td class="num fee">${row.isWithdrawalSummary ? "—" : escapeHtml(brl(row.fees))}</td>
               <td class="num out">${row.isWithdrawalSummary ? "—" : `${row.expenses ? "-" : ""}${escapeHtml(brl(row.expenses))}`}</td>
-              <td class="num out">${row.withdrawals ? "-" : ""}${escapeHtml(brl(row.withdrawals))}</td>
+              <td class="num ${row.withdrawals < 0 ? "in" : "out"}">${escapeHtml(reserveImpact(row.withdrawals))}</td>
               <td class="num ${row.balance >= 0 ? "in" : "out"}">${row.isWithdrawalSummary ? "—" : escapeHtml(brl(row.balance))}</td>
             </tr>`,
           )
@@ -481,7 +486,7 @@ function RelatoriosPage() {
   </div>
   <div class="section">
     <h2>Saldo por forma de pagamento</h2>
-    <p>Entradas líquidas menos despesas e sangrias. Suprimentos aumentam somente o saldo em dinheiro.</p>
+    <p>Sangrias apresentadas pelo valor líquido das devoluções da reserva. Suprimentos externos aumentam somente o saldo em dinheiro.</p>
     <table><thead><tr><th>Forma</th><th class="num">Entradas</th><th class="num">Taxas</th><th class="num">Despesas</th><th class="num">Sangrias</th><th class="num">Saldo</th></tr></thead><tbody>${paymentTable}</tbody></table>
   </div>
   <div class="footer">Natural Point · Relatório gerado automaticamente pelo sistema</div>
@@ -588,7 +593,7 @@ function RelatoriosPage() {
             </table>
           </TableShell>
         </SectionCard>
-        <SectionCard title="Saldo por forma de pagamento" description="Entradas líquidas menos despesas na mesma forma. Sangrias reduzem somente o dinheiro físico; suprimentos aumentam esse saldo.">
+        <SectionCard title="Saldo por forma de pagamento" description="Sangrias líquidas descontam devoluções da reserva; suprimentos externos aumentam o dinheiro físico.">
           <TableShell>
             <table className="min-w-full text-sm">
               <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
@@ -599,12 +604,12 @@ function RelatoriosPage() {
                   <tr key={row.name} className={row.isWithdrawalSummary ? "bg-amber-50/60" : undefined}>
                     <td className="px-4 py-3 font-medium">
                       {row.name}
-                      {row.isWithdrawalSummary ? <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">Valor retirado para o cofre</span> : null}
+                      {row.isWithdrawalSummary ? <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">Retiradas menos devoluções da reserva</span> : null}
                     </td>
                     <td className="px-4 py-3">{row.isWithdrawalSummary ? "—" : brl(row.gross)}</td>
                     <td className="px-4 py-3 text-destructive">{row.isWithdrawalSummary ? "—" : row.fees > 0 ? `-${brl(row.fees)}` : brl(0)}</td>
                     <td className="px-4 py-3 text-destructive">{row.isWithdrawalSummary ? "—" : row.expenses > 0 ? `-${brl(row.expenses)}` : brl(0)}</td>
-                    <td className="px-4 py-3 text-destructive">{row.withdrawals > 0 ? `-${brl(row.withdrawals)}` : brl(0)}</td>
+                    <td className={`px-4 py-3 ${row.withdrawals < 0 ? "text-success" : "text-destructive"}`}>{reserveImpact(row.withdrawals)}</td>
                     <td className={`px-4 py-3 font-semibold ${row.balance >= 0 ? "text-success" : "text-destructive"}`}>{row.isWithdrawalSummary ? "—" : brl(row.balance)}</td>
                   </tr>
                 ))}
