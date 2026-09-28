@@ -58,7 +58,7 @@ function ContasPagarPage() {
   const categories = data?.categories ?? [];
   const methods = data?.methods ?? [];
   const q = search.toLowerCase().trim();
-  const filtered = useMemo(() => accounts.filter((a: any) => !q || `${a.description} ${a.supplier ?? ""}`.toLowerCase().includes(q)), [accounts, q]);
+  const filtered = useMemo(() => accounts.filter((a: any) => a.status === "pending" && (!q || `${a.description} ${a.supplier ?? ""}`.toLowerCase().includes(q))), [accounts, q]);
   const pending = accounts.filter((a: any) => a.status === "pending");
   const overdue = pending.filter((a: any) => a.due_date < todayISO());
   const dueSoon = pending.filter((a: any) => {
@@ -185,7 +185,7 @@ function ContasPagarPage() {
           <Button className="mt-5" onClick={() => save.mutate()} disabled={save.isPending}>Cadastrar conta</Button>
         </SectionCard>}
 
-        <SectionCard title="Contas cadastradas" actions={<div className="w-72 max-w-full"><SearchBox value={search} onChange={setSearch} placeholder="Buscar conta ou fornecedor" /></div>}>
+        <SectionCard title="Contas pendentes" description="Depois de registrar o pagamento, a conta sai desta lista e fica registrada em Despesas." actions={<div className="w-72 max-w-full"><SearchBox value={search} onChange={setSearch} placeholder="Buscar conta ou fornecedor" /></div>}>
           {isLoading ? <p className="text-sm text-muted-foreground">Carregando…</p> : filtered.length === 0 ? <EmptyState title="Nenhuma conta a pagar" description="Cadastre aluguel, energia, água, internet, fornecedores e outras contas da loja." /> : <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Conta</th><th className="px-4 py-3">Vencimento</th><th className="px-4 py-3">Valor</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((row: any) => { const late = row.status === "pending" && row.due_date < todayISO(); return <tr key={row.id}><td className="px-4 py-3 font-medium">{row.description}<p className="text-xs font-normal text-muted-foreground">{row.supplier || row.expense_categories?.name || "Sem fornecedor"}{row.is_fixed ? " · fixa" : ""}</p></td><td className="px-4 py-3">{dateBR(row.due_date)}</td><td className="px-4 py-3 font-medium">{brl(row.amount)}</td><td className="px-4 py-3"><StatusPill status={row.status} overdue={late} /></td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2">{row.status === "pending" && <NativeSelect value="" onChange={(v) => pay(row, v)} className="h-8 w-44"><option value="">Registrar pagamento...</option>{methods.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}</NativeSelect>}<Button size="sm" variant="ghost" className="text-destructive" onClick={() => remove(row)}><Trash2 className="h-4 w-4" /></Button></div></td></tr>; })}</tbody></table></TableShell>}
         </SectionCard>
       </div>
