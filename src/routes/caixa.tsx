@@ -126,6 +126,8 @@ function CaixaPage() {
   const open = sessions.find((s: any) => s.status === "open") as any;
   const latestClosed = sessions.find((s: any) => s.status === "closed") as any;
   const expected = open ? Number(data?.expectedCash ?? open.opening_cash ?? 0) : 0;
+  // Saldo ativo contínuo: sem caixa aberto, mantém o último fechamento (independe de mês/ano).
+  const activeBalance = open ? expected : Number(latestClosed?.counted_cash ?? latestClosed?.expected_cash ?? 0);
   const differencePreview = parseNumber(counted) - expected;
   const editingSession = sessions.find((s: any) => s.id === editSessionId) as any;
   const correctedOpeningValue = editingSession ? parseNumber(correctedOpening) : 0;
@@ -324,7 +326,7 @@ function CaixaPage() {
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <StatCard label="Situação" value={open ? "Caixa aberto" : "Caixa fechado"} tone={open ? "positive" : "default"} />
           <StatCard label="Valor inicial" value={brl(open?.opening_cash ?? 0)} />
-          <StatCard label="Esperado agora" value={brl(expected)} tone="gold" />
+          <StatCard label={open ? "Esperado agora" : "Saldo ativo"} value={brl(activeBalance)} tone="gold" />
           <StatCard label="Última diferença" value={brl(latestClosed?.difference ?? 0)} tone={Number(latestClosed?.difference ?? 0) === 0 ? "positive" : "negative"} />
           <StatCard label="Reserva guardada" value={brl(reserveBalance)} tone="gold" />
         </div>

@@ -96,7 +96,7 @@ function DashboardPage() {
         supabase.from("sales").select("id,sold_at,total,customer_name,status").gte("sold_at", `${monthStart}T00:00:00`).order("sold_at", { ascending: false }),
         supabase.from("products").select("id,name,category,sale_mode,unit,stock_qty,low_stock_threshold,package_count,package_volume_l").eq("is_active", true).order("stock_qty", { ascending: true }),
         supabase.from("accounts_receivable").select("id,customer_name,amount,due_date,status,paid_at").order("created_at", { ascending: false }).limit(10),
-        supabase.from("cash_sessions").select("id,status,opened_at,opening_cash,difference").order("opened_at", { ascending: false }).limit(3),
+        supabase.from("cash_sessions").select("id,status,opened_at,closed_at,opening_cash,expected_cash,counted_cash,difference").order("opened_at", { ascending: false }).limit(3),
       ];
       if (isManager) requests.push(supabase.from("expenses").select("id,expense_date,description,amount,status").gte("expense_date", monthStart).lte("expense_date", today).order("expense_date", { ascending: false }));
       const results = await Promise.all(requests);
@@ -113,6 +113,10 @@ function DashboardPage() {
   const lowStock = (data?.products ?? []).filter((p: any) => p.sale_mode !== "weight" && Number(p.stock_qty) <= Number(p.low_stock_threshold));
   const weightBase = (data?.products ?? []).find((p: any) => p.sale_mode === "weight");
   const openCash = (data?.cash ?? []).find((c: any) => c.status === "open");
+  // Saldo ativo contínuo: caixa aberto usa o valor em tempo real; fechado mantém o último fechamento,
+  // sem depender do filtro do mês (funciona também na virada de ano).
+  const lastClosed = (data?.cash ?? []).find((c: any) => c.status === "closed");
+  const activeCash = openCash ? Number(metrics["cash"] ?? 0) : Number(lastClosed?.counted_cash ?? lastClosed?.expected_cash ?? 0);
   const pendingReceivables = (data?.receivables ?? []).filter((r: any) => r.status === "pending").length;
 
   const days = Array.from({ length: 14 }, (_, i) => {
@@ -164,7 +168,7 @@ function DashboardPage() {
               {isManager ? (
                 <MetricCard label="Resultado do mês" value={brl(metrics["result"])} hint="Receitas líquidas menos despesas" icon={(metrics["result"] ?? 0) >= 0 ? ArrowUpRight : ArrowDownRight} tone={(metrics["result"] ?? 0) >= 0 ? "green" : "red"} />
               ) : (
-                <MetricCard label="Valor em caixa" value={brl(metrics["cash"])} hint={openCash ? "Sessão atualmente aberta" : "Caixa fechado"} icon={Wallet} tone="purple" />
+                <MetricCard label="Valor em caixa" value={brl(activeCash)} hint={openCash ? "Sessão atualmente aberta" : "Caixa fechado · último fechamento"} icon={Wallet} tone="purple" />
               )}
             </div>
           </section>
@@ -177,7 +181,7 @@ function DashboardPage() {
                   <span className="rounded-full bg-primary/[0.06] px-3 py-1.5 text-[10px] font-medium text-primary">Atualizado pelo sistema</span>
                 </div>
                 <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
-                  <CompactMetric label="Valor em caixa" value={brl(metrics["cash"])} hint={openCash ? "aberto" : "fechado"} icon={Wallet} />
+                  <CompactMetric label="Valor em caixa" value={brl(activeCash)} hint={openCash ? "aberto" : "último fechamento"} icon={Wallet} />
                   <CompactMetric label="Despesas pagas" value={brl(metrics["expenses"])} icon={ReceiptText} alert={(metrics["expenses"] ?? 0) > 0} />
                   <CompactMetric label="Contas a pagar" value={brl(metrics["payable"])} hint="pendentes" icon={CreditCard} alert={(metrics["payable"] ?? 0) > 0} />
                   <CompactMetric label="Contas a receber" value={brl(metrics["receivable"])} hint="previstas" icon={Banknote} />
