@@ -11,11 +11,15 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CaixaRouteImport } from './routes/caixa'
+import { Route as ComissoesRouteImport } from './routes/comissoes'
+import { Route as ComprasRouteImport } from './routes/compras'
+import { Route as ConfiguracoesRouteImport } from './routes/configuracoes'
 import { Route as ContasAPagarRouteImport } from './routes/contas-a-pagar'
 import { Route as ContasAReceberRouteImport } from './routes/contas-a-receber'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as DespesasRouteImport } from './routes/despesas'
 import { Route as EstoqueRouteImport } from './routes/estoque'
+import { Route as ReceitasRouteImport } from './routes/receitas'
 import { Route as RelatoriosRouteImport } from './routes/relatorios'
 import { Route as SociosRouteImport } from './routes/socios'
 import { Route as UsuariosRouteImport } from './routes/usuarios'
@@ -29,6 +33,21 @@ const IndexRoute = IndexRouteImport.update({
 const CaixaRoute = CaixaRouteImport.update({
   id: '/caixa',
   path: '/caixa',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ComissoesRoute = ComissoesRouteImport.update({
+  id: '/comissoes',
+  path: '/comissoes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ComprasRoute = ComprasRouteImport.update({
+  id: '/compras',
+  path: '/compras',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConfiguracoesRoute = ConfiguracoesRouteImport.update({
+  id: '/configuracoes',
+  path: '/configuracoes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ContasAPagarRoute = ContasAPagarRouteImport.update({
@@ -56,6 +75,11 @@ const EstoqueRoute = EstoqueRouteImport.update({
   path: '/estoque',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ReceitasRoute = ReceitasRouteImport.update({
+  id: '/receitas',
+  path: '/receitas',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RelatoriosRoute = RelatoriosRouteImport.update({
   id: '/relatorios',
   path: '/relatorios',
@@ -80,11 +104,15 @@ const VendasRoute = VendasRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/caixa': typeof CaixaRoute
+  '/comissoes': typeof ComissoesRoute
+  '/compras': typeof ComprasRoute
+  '/configuracoes': typeof ConfiguracoesRoute
   '/contas-a-pagar': typeof ContasAPagarRoute
   '/contas-a-receber': typeof ContasAReceberRoute
   '/dashboard': typeof DashboardRoute
   '/despesas': typeof DespesasRoute
   '/estoque': typeof EstoqueRoute
+  '/receitas': typeof ReceitasRoute
   '/relatorios': typeof RelatoriosRoute
   '/socios': typeof SociosRoute
   '/usuarios': typeof UsuariosRoute
@@ -93,11 +121,15 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/caixa': typeof CaixaRoute
+  '/comissoes': typeof ComissoesRoute
+  '/compras': typeof ComprasRoute
+  '/configuracoes': typeof ConfiguracoesRoute
   '/contas-a-pagar': typeof ContasAPagarRoute
   '/contas-a-receber': typeof ContasAReceberRoute
   '/dashboard': typeof DashboardRoute
   '/despesas': typeof DespesasRoute
   '/estoque': typeof EstoqueRoute
+  '/receitas': typeof ReceitasRoute
   '/relatorios': typeof RelatoriosRoute
   '/socios': typeof SociosRoute
   '/usuarios': typeof UsuariosRoute
@@ -107,11 +139,15 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/caixa': typeof CaixaRoute
+  '/comissoes': typeof ComissoesRoute
+  '/compras': typeof ComprasRoute
+  '/configuracoes': typeof ConfiguracoesRoute
   '/contas-a-pagar': typeof ContasAPagarRoute
   '/contas-a-receber': typeof ContasAReceberRoute
   '/dashboard': typeof DashboardRoute
   '/despesas': typeof DespesasRoute
   '/estoque': typeof EstoqueRoute
+  '/receitas': typeof ReceitasRoute
   '/relatorios': typeof RelatoriosRoute
   '/socios': typeof SociosRoute
   '/usuarios': typeof UsuariosRoute
@@ -122,11 +158,15 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/caixa'
+    | '/comissoes'
+    | '/compras'
+    | '/configuracoes'
     | '/contas-a-pagar'
     | '/contas-a-receber'
     | '/dashboard'
     | '/despesas'
     | '/estoque'
+    | '/receitas'
     | '/relatorios'
     | '/socios'
     | '/usuarios'
@@ -135,11 +175,15 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/caixa'
+    | '/comissoes'
+    | '/compras'
+    | '/configuracoes'
     | '/contas-a-pagar'
     | '/contas-a-receber'
     | '/dashboard'
     | '/despesas'
     | '/estoque'
+    | '/receitas'
     | '/relatorios'
     | '/socios'
     | '/usuarios'
@@ -148,11 +192,15 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/caixa'
+    | '/comissoes'
+    | '/compras'
+    | '/configuracoes'
     | '/contas-a-pagar'
     | '/contas-a-receber'
     | '/dashboard'
     | '/despesas'
     | '/estoque'
+    | '/receitas'
     | '/relatorios'
     | '/socios'
     | '/usuarios'
@@ -162,11 +210,15 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CaixaRoute: typeof CaixaRoute
+  ComissoesRoute: typeof ComissoesRoute
+  ComprasRoute: typeof ComprasRoute
+  ConfiguracoesRoute: typeof ConfiguracoesRoute
   ContasAPagarRoute: typeof ContasAPagarRoute
   ContasAReceberRoute: typeof ContasAReceberRoute
   DashboardRoute: typeof DashboardRoute
   DespesasRoute: typeof DespesasRoute
   EstoqueRoute: typeof EstoqueRoute
+  ReceitasRoute: typeof ReceitasRoute
   RelatoriosRoute: typeof RelatoriosRoute
   SociosRoute: typeof SociosRoute
   UsuariosRoute: typeof UsuariosRoute
@@ -187,6 +239,27 @@ declare module '@tanstack/react-router' {
       path: '/caixa'
       fullPath: '/caixa'
       preLoaderRoute: typeof CaixaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/comissoes': {
+      id: '/comissoes'
+      path: '/comissoes'
+      fullPath: '/comissoes'
+      preLoaderRoute: typeof ComissoesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/compras': {
+      id: '/compras'
+      path: '/compras'
+      fullPath: '/compras'
+      preLoaderRoute: typeof ComprasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/configuracoes': {
+      id: '/configuracoes'
+      path: '/configuracoes'
+      fullPath: '/configuracoes'
+      preLoaderRoute: typeof ConfiguracoesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/contas-a-pagar': {
@@ -224,6 +297,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EstoqueRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/receitas': {
+      id: '/receitas'
+      path: '/receitas'
+      fullPath: '/receitas'
+      preLoaderRoute: typeof ReceitasRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/relatorios': {
       id: '/relatorios'
       path: '/relatorios'
@@ -258,11 +338,15 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CaixaRoute: CaixaRoute,
+  ComissoesRoute: ComissoesRoute,
+  ComprasRoute: ComprasRoute,
+  ConfiguracoesRoute: ConfiguracoesRoute,
   ContasAPagarRoute: ContasAPagarRoute,
   ContasAReceberRoute: ContasAReceberRoute,
   DashboardRoute: DashboardRoute,
   DespesasRoute: DespesasRoute,
   EstoqueRoute: EstoqueRoute,
+  ReceitasRoute: ReceitasRoute,
   RelatoriosRoute: RelatoriosRoute,
   SociosRoute: SociosRoute,
   UsuariosRoute: UsuariosRoute,
