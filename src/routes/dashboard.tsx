@@ -161,15 +161,20 @@ function DashboardPage() {
             <div className="mb-3 flex items-end justify-between gap-3 px-1">
               <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Indicadores principais</p><h3 className="mt-1 font-display text-xl">Financeiro do período</h3></div>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
               <MetricCard label="Vendas de hoje" value={brl(metrics["sales_today"])} icon={ShoppingBag} tone="purple" />
               <MetricCard label="Vendas do mês" value={brl(metrics["sales_period"])} icon={CircleDollarSign} tone="gold" />
               <MetricCard label="Total recebido líquido" value={brl(metrics["received"])} hint="Taxas de pagamento já descontadas" icon={ArrowUpRight} tone="green" />
-              {isManager ? (
+              {isManager && (
                 <MetricCard label="Resultado do mês" value={brl(metrics["result"])} hint="Receitas líquidas menos despesas" icon={(metrics["result"] ?? 0) >= 0 ? ArrowUpRight : ArrowDownRight} tone={(metrics["result"] ?? 0) >= 0 ? "green" : "red"} />
-              ) : (
-                <MetricCard label="Valor em caixa" value={brl(activeCash)} hint={openCash ? "Sessão atualmente aberta" : "Caixa fechado · último fechamento"} icon={Wallet} tone="purple" />
               )}
+              <MetricCard
+                label="Saldo ativo"
+                value={brl(activeCash)}
+                hint={openCash ? "Saldo atual do caixa aberto" : "Mantém o último fechamento entre meses"}
+                icon={Wallet}
+                tone="purple"
+              />
             </div>
           </section>
 
@@ -181,7 +186,7 @@ function DashboardPage() {
                   <span className="rounded-full bg-primary/[0.06] px-3 py-1.5 text-[10px] font-medium text-primary">Atualizado pelo sistema</span>
                 </div>
                 <div className="grid gap-3 p-4 sm:grid-cols-2 sm:p-5">
-                  <CompactMetric label="Valor em caixa" value={brl(activeCash)} hint={openCash ? "aberto" : "último fechamento"} icon={Wallet} />
+                  <CompactMetric label="Saldo ativo" value={brl(activeCash)} hint={openCash ? "caixa aberto" : "mantém o último fechamento"} icon={Wallet} />
                   <CompactMetric label="Despesas pagas" value={brl(metrics["expenses"])} icon={ReceiptText} alert={(metrics["expenses"] ?? 0) > 0} />
                   <CompactMetric label="Contas a pagar" value={brl(metrics["payable"])} hint="pendentes" icon={CreditCard} alert={(metrics["payable"] ?? 0) > 0} />
                   <CompactMetric label="Contas a receber" value={brl(metrics["receivable"])} hint="previstas" icon={Banknote} />
