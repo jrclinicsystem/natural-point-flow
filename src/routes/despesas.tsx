@@ -50,7 +50,7 @@ function DespesasPage() {
   const categories = data?.categories ?? [];
   const methods = data?.methods ?? [];
   const q = search.trim().toLowerCase();
-  const filtered = useMemo(() => expenses.filter((e: any) => !q || `${e.description} ${e.supplier ?? ""} ${e.expense_categories?.name ?? ""}`.toLowerCase().includes(q)), [expenses, q]);
+  const filtered = useMemo(() => expenses.filter((e: any) => !q || `${e.description} ${e.supplier ?? ""} ${e.expense_categories?.name ?? ""} ${e.payment_methods?.name ?? ""}`.toLowerCase().includes(q)), [expenses, q]);
   const groupedExpenses = useMemo(() => {
     const groups = new Map<string, any[]>();
     for (const row of filtered) {
