@@ -97,12 +97,21 @@ function DashboardPage() {
         supabase.from("products").select("id,name,category,sale_mode,unit,stock_qty,low_stock_threshold,package_count,package_volume_l").eq("is_active", true).order("stock_qty", { ascending: true }),
         supabase.from("accounts_receivable").select("id,customer_name,amount,due_date,status,paid_at").order("created_at", { ascending: false }).limit(10),
         supabase.from("cash_sessions").select("id,status,opened_at,closed_at,opening_cash,expected_cash,counted_cash,difference").order("opened_at", { ascending: false }).limit(3),
+        supabase.from("cash_sessions").select("id,business_date,opened_at,opening_cash,expected_cash,counted_cash,status").gte("business_date", monthStart).lte("business_date", today).order("business_date", { ascending: true }).order("opened_at", { ascending: true }).limit(1),
+        supabase.from("cash_sessions").select("id,business_date,closed_at,expected_cash,counted_cash,status").eq("status", "closed").lt("business_date", monthStart).order("business_date", { ascending: false }).order("closed_at", { ascending: false }).limit(1),
       ];
       if (isManager) requests.push(supabase.from("expenses").select("id,expense_date,description,amount,status").gte("expense_date", monthStart).lte("expense_date", today).order("expense_date", { ascending: false }));
       const results = await Promise.all(requests);
       for (const r of results) if (r.error) throw r.error;
       return {
-        summary: results[0].data ?? [], sales: results[1].data ?? [], products: results[2].data ?? [], receivables: results[3].data ?? [], cash: results[4].data ?? [], expenses: isManager ? results[5].data ?? [] : [],
+        summary: results[0].data ?? [],
+        sales: results[1].data ?? [],
+        products: results[2].data ?? [],
+        receivables: results[3].data ?? [],
+        cash: results[4].data ?? [],
+        firstCashOfMonth: results[5].data?.[0] ?? null,
+        previousClosedCash: results[6].data?.[0] ?? null,
+        expenses: isManager ? results[7].data ?? [] : [],
       };
     },
   });
@@ -117,6 +126,12 @@ function DashboardPage() {
   // sem depender do filtro do mês (funciona também na virada de ano).
   const lastClosed = (data?.cash ?? []).find((c: any) => c.status === "closed");
   const activeCash = openCash ? Number(metrics["cash"] ?? 0) : Number(lastClosed?.counted_cash ?? lastClosed?.expected_cash ?? 0);
+  const monthOpeningCash = Number(
+    data?.firstCashOfMonth?.opening_cash ??
+      data?.previousClosedCash?.counted_cash ??
+      data?.previousClosedCash?.expected_cash ??
+      0,
+  );
   const pendingReceivables = (data?.receivables ?? []).filter((r: any) => r.status === "pending").length;
 
   const days = Array.from({ length: 14 }, (_, i) => {
@@ -161,13 +176,20 @@ function DashboardPage() {
             <div className="mb-3 flex items-end justify-between gap-3 px-1">
               <div><p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Indicadores principais</p><h3 className="mt-1 font-display text-xl">Financeiro do período</h3></div>
             </div>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
               <MetricCard label="Vendas de hoje" value={brl(metrics["sales_today"])} icon={ShoppingBag} tone="purple" />
               <MetricCard label="Vendas do mês" value={brl(metrics["sales_period"])} icon={CircleDollarSign} tone="gold" />
               <MetricCard label="Total recebido líquido" value={brl(metrics["received"])} hint="Taxas de pagamento já descontadas" icon={ArrowUpRight} tone="green" />
               {isManager && (
                 <MetricCard label="Resultado do mês" value={brl(metrics["result"])} hint="Receitas líquidas menos despesas" icon={(metrics["result"] ?? 0) >= 0 ? ArrowUpRight : ArrowDownRight} tone={(metrics["result"] ?? 0) >= 0 ? "green" : "red"} />
               )}
+              <MetricCard
+                label="Saldo inicial do mês"
+                value={brl(monthOpeningCash)}
+                hint="Trazido do fechamento anterior · não conta como receita"
+                icon={Wallet}
+                tone="gold"
+              />
               <MetricCard
                 label="Saldo ativo"
                 value={brl(activeCash)}

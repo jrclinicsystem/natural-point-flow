@@ -69,7 +69,7 @@ function RelatoriosPage() {
     queryFn: async () => {
       const start = `${from}T00:00:00-03:00`;
       const end = `${to}T23:59:59.999-03:00`;
-      const [payments, manualReceipts, expenses, cashMovements, cashSessions, reserve, profiles] = await Promise.all([
+      const [payments, manualReceipts, expenses, cashMovements, cashSessions, reserve, profiles, previousClosedCash] = await Promise.all([
         supabase
           .from("sale_payments")
           .select("id,sale_id,payment_method_id,amount,fee_amount,net_amount,created_at,payment_methods!inner(name,kind),sales(customer_name,status,sold_at)")
@@ -106,6 +106,14 @@ function RelatoriosPage() {
           .order("business_date", { ascending: false }),
         supabase.rpc("cash_reserve_balance"),
         supabase.from("profiles").select("id,full_name,email"),
+        supabase
+          .from("cash_sessions")
+          .select("id,business_date,closed_at,expected_cash,counted_cash,status")
+          .eq("status", "closed")
+          .lt("business_date", from)
+          .order("business_date", { ascending: false })
+          .order("closed_at", { ascending: false })
+          .limit(1),
       ]);
       if (payments.error) throw payments.error;
       if (manualReceipts.error) throw manualReceipts.error;
@@ -114,6 +122,7 @@ function RelatoriosPage() {
       if (cashSessions.error) throw cashSessions.error;
       if (reserve.error) throw reserve.error;
       if (profiles.error) throw profiles.error;
+      if (previousClosedCash.error) throw previousClosedCash.error;
       return {
         payments: payments.data ?? [],
         manualReceipts: manualReceipts.data ?? [],
@@ -122,6 +131,7 @@ function RelatoriosPage() {
         cashSessions: cashSessions.data ?? [],
         reserveBalance: Number(reserve.data ?? 0),
         profiles: profiles.data ?? [],
+        previousClosedCash: previousClosedCash.data?.[0] ?? null,
       };
     },
     refetchOnMount: "always",
@@ -194,6 +204,17 @@ function RelatoriosPage() {
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((x) => ({ ...x, label: x.date.slice(8, 10) + "/" + x.date.slice(5, 7) }));
   }, [entries, paidExpenses]);
+
+  const cashSessions = data?.cashSessions ?? [];
+  const firstCashSessionInPeriod = [...cashSessions].sort((a: any, b: any) =>
+    String(a.business_date).localeCompare(String(b.business_date)),
+  )[0];
+  const periodOpeningCash = Number(
+    firstCashSessionInPeriod?.opening_cash ??
+      data?.previousClosedCash?.counted_cash ??
+      data?.previousClosedCash?.expected_cash ??
+      0,
+  );
 
   const cashMovements = data?.cashMovements ?? [];
   const totalWithdrawals = cashMovements
@@ -376,6 +397,7 @@ function RelatoriosPage() {
     ].sort((a, b) => String(a.date).localeCompare(String(b.date)));
 
     const summaryCards = [
+      ["Saldo inicial do período", brl(periodOpeningCash)],
       ["Entradas líquidas", brl(totalEntries)],
       ["Saídas pagas", brl(totalExpenses)],
       ["Taxas", brl(totalFees)],
@@ -439,7 +461,8 @@ function RelatoriosPage() {
   h1 { margin: 0; font: 700 25px Georgia, serif; }
   .sub { margin-top: 5px; color: #75687a; font-size: 11px; }
   .period { text-align: right; font-size: 11px; color: #75687a; line-height: 1.5; }
-  .metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 9px; margin: 18px 0; }
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin: 18px 0 8px; }
+  .carry-note { margin: 0 0 16px; color: #75687a; font-size: 9px; }
   .metric { border: 1px solid #e8dfd5; border-radius: 12px; padding: 11px; background: #fff; }
   .metric span { display: block; color: #75687a; text-transform: uppercase; letter-spacing: .06em; font-size: 8px; font-weight: 700; }
   .metric strong { display: block; margin-top: 6px; font: 700 16px Georgia, serif; }
@@ -468,6 +491,7 @@ function RelatoriosPage() {
     <div class="period"><strong>Período</strong><br>${escapeHtml(dateBR(from))} a ${escapeHtml(dateBR(to))}<br>Gerado em ${escapeHtml(new Date().toLocaleString("pt-BR"))}</div>
   </div>
   <div class="metrics">${summaryCards}</div>
+  <div class="carry-note">Saldo inicial trazido do fechamento anterior; não compõe entradas, vendas nem resultado líquido.</div>
   <div class="section">
     <h2>Entradas e saídas</h2>
     <p>Valores de vendas já aparecem líquidos das taxas configuradas. Entradas manuais e despesas pagas também estão incluídas.</p>
@@ -535,13 +559,15 @@ function RelatoriosPage() {
           </div>
         </SectionCard>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+          <StatCard label="Saldo inicial do período" value={brl(periodOpeningCash)} tone="gold" />
           <StatCard label="Entradas líquidas" value={brl(totalEntries)} tone="positive" />
           <StatCard label="Vendas líquidas" value={brl(salesNet)} />
           <StatCard label="Saídas pagas" value={brl(totalExpenses)} tone="negative" />
           <StatCard label="Resultado líquido" value={brl(result)} tone={result >= 0 ? "positive" : "negative"} />
           <StatCard label="Taxas de pagamento" value={brl(totalFees)} tone="gold" />
         </div>
+        <p className="-mt-3 text-xs text-muted-foreground">Saldo inicial trazido do fechamento anterior · não conta como receita.</p>
 
         <SectionCard title="Entradas x despesas" description="Entradas já líquidas das taxas configuradas nas formas de pagamento.">
           {isLoading ? (
