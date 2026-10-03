@@ -193,6 +193,7 @@ function DespesasPage() {
                                 <th className="px-4 py-3">Categoria</th>
                                 <th className="px-4 py-3">Data</th>
                                 <th className="px-4 py-3">Valor</th>
+                                <th className="px-4 py-3">Forma de pagamento</th>
                                 <th className="px-4 py-3">Status</th>
                                 <th className="px-4 py-3 text-right">Ações</th>
                               </tr>
@@ -207,6 +208,9 @@ function DespesasPage() {
                                   <td className="px-4 py-3 text-muted-foreground">{row.expense_categories?.name || "-"}</td>
                                   <td className="px-4 py-3">{dateBR(row.expense_date)}</td>
                                   <td className="px-4 py-3 font-medium">{brl(row.amount)}</td>
+                                  <td className="px-4 py-3 text-muted-foreground">
+                                    {row.payment_methods?.name || (row.status === "pending" ? "A definir" : "Não informado")}
+                                  </td>
                                   <td className="px-4 py-3"><StatusPill status={row.status} overdue={row.status === "pending" && !!row.due_date && row.due_date < todayISO()} /></td>
                                   <td className="px-4 py-3 text-right">
                                     <div className="flex justify-end gap-2">
