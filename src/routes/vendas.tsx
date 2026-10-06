@@ -54,18 +54,31 @@ function VendasPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["np-sales-workspace"],
     queryFn: async () => {
-      const [products, methods] = await Promise.all([
+      const [products, methods, openCash] = await Promise.all([
         supabase.from("products").select("*").eq("is_active", true).order("category").order("name"),
         supabase.from("payment_methods").select("*").eq("is_active", true).order("sort_order"),
+        supabase
+          .from("cash_sessions")
+          .select("id, opened_at, business_date")
+          .eq("status", "open")
+          .order("opened_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
       ]);
       if (products.error) throw products.error;
       if (methods.error) throw methods.error;
-      return { products: (products.data ?? []) as Product[], methods: (methods.data ?? []) as PaymentMethod[] };
+      if (openCash.error) throw openCash.error;
+      return {
+        products: (products.data ?? []) as Product[],
+        methods: (methods.data ?? []) as PaymentMethod[],
+        openCash: openCash.data ?? null,
+      };
     },
   });
 
   const products = data?.products ?? [];
   const methods = data?.methods ?? [];
+  const cashIsOpen = Boolean(data?.openCash?.id);
   const weightProducts = products.filter((p) => p.sale_mode === "weight");
   const weightProduct = weightProducts[0];
   const sellableProducts = products.filter((p) => p.sale_mode === "unit" || p.sale_mode === "addon");
@@ -115,7 +128,7 @@ function VendasPage() {
       }, 0)
     : selectedMethod ? total * Number(selectedMethod.fee_percent ?? 0) / 100 : 0;
   const estimatedNet = Math.max(paid - estimatedFee, 0);
-  const canFinalize = total > 0 && paymentsMatch && !cashShort;
+  const canFinalize = cashIsOpen && total > 0 && paymentsMatch && !cashShort;
 
   const filteredProducts = useMemo(() => {
     const normalize = (value: string) =>
@@ -213,6 +226,7 @@ function VendasPage() {
 
   const createSale = useMutation({
     mutationFn: async () => {
+      if (!cashIsOpen) throw new Error("Abra o caixa antes de registrar uma venda.");
       if (total <= 0) throw new Error("Adicione o peso ou algum produto à venda.");
       if (committedWeightGrams > 0 && !weightProduct) throw new Error("A base Açaí + Gelato não está configurada no estoque.");
       if (committedWeightGrams > 0 && saleWeightPricePerKg <= 0) throw new Error("O preço por kg precisa ser maior que zero.");
@@ -472,6 +486,12 @@ function VendasPage() {
               <div className={`mt-1 flex justify-between ${paymentsMatch ? "text-success" : "text-destructive"}`}><span>Diferença</span><span>{brl(total - paid)}</span></div>
               {paymentsMatch && estimatedFee > 0 ? <div className="mt-2 border-t border-border/70 pt-2"><div className="flex justify-between text-muted-foreground"><span>Taxas</span><span>- {brl(estimatedFee)}</span></div><div className="mt-1 flex justify-between text-success"><span>Líquido na receita</span><strong>{brl(estimatedNet)}</strong></div></div> : null}
             </div>
+
+            {!cashIsOpen ? (
+              <div className="mt-3 rounded-xl border border-destructive/25 bg-destructive/[0.06] p-3 text-xs font-medium text-destructive">
+                Caixa fechado. Abra o caixa antes de registrar qualquer venda.
+              </div>
+            ) : null}
 
             <Button
               type="button"
