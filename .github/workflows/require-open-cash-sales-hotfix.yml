@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - '.github/scripts/require_open_cash_sales_patch.py'
+      - '.github/hotfix-triggers/require-open-cash-sales.txt'
   workflow_dispatch:
 
 permissions:
