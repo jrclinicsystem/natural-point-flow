@@ -8,3 +8,5 @@
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
 <!-- LOVABLE:END -->
+
+- Keep expense period boundaries in the browser-safe `src/lib/expense-period.ts` with adjacent tests, so historical month/year selection and inclusive date ranges remain independently verifiable without changing financial operations.
