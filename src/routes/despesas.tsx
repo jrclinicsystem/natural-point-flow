@@ -10,9 +10,17 @@ import { Input } from "@/components/ui/input";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { brl, dateBR, parseNumber, todayISO } from "@/lib/format";
+import { expensePeriodRange, validExpenseRange, type ExpensePeriod } from "@/lib/expense-period";
 
 export const Route = createFileRoute("/despesas")({
-  head: () => ({ meta: [{ title: "Despesas | Natural Point" }] }),
+  head: () => ({ meta: [
+    { title: "Despesas | Natural Point" },
+    { name: "description", content: "Despesas da Natural Point por período, categoria e forma de pagamento." },
+    { property: "og:title", content: "Despesas | Natural Point" },
+    { property: "og:description", content: "Consulte despesas pagas e pendentes no período selecionado." },
+    { property: "og:type", content: "website" },
+    { name: "twitter:card", content: "summary" },
+  ] }),
   component: DespesasPage,
 });
 
@@ -21,6 +29,16 @@ function DespesasPage() {
   const { isManager } = useAuth();
   const [showForm, setShowForm] = useState(false);
   const [search, setSearch] = useState("");
+  const [period, setPeriod] = useState<ExpensePeriod>("month");
+  const [month, setMonth] = useState(() => todayISO().slice(0, 7));
+  const [year, setYear] = useState(() => todayISO().slice(0, 4));
+  const [range, setRange] = useState(() => expensePeriodRange("month", todayISO()));
+  const { from, to } = range;
+  const rangeValid = validExpenseRange(period, range);
+  const applyPeriod = (next: Exclude<ExpensePeriod, "custom">) => {
+    setPeriod(next);
+    setRange(expensePeriodRange(next, todayISO(), month, year));
+  };
   const [description, setDescription] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [supplier, setSupplier] = useState("");
@@ -30,12 +48,14 @@ function DespesasPage() {
   const [status, setStatus] = useState("paid");
   const [dueDate, setDueDate] = useState("");
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["np-expenses"],
-    enabled: isManager,
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
+    queryKey: ["np-expenses", period === "all" ? "all" : from, period === "all" ? "all" : to],
+    enabled: isManager && rangeValid,
     queryFn: async () => {
+      let expenseQuery = supabase.from("expenses").select("*,expense_categories(name),payment_methods(name,kind)");
+      if (period !== "all") expenseQuery = expenseQuery.gte("expense_date", from).lte("expense_date", to);
       const [expenses, categories, methods] = await Promise.all([
-        supabase.from("expenses").select("*,expense_categories(name),payment_methods(name,kind)").order("expense_date", { ascending: false }),
+        expenseQuery.order("expense_date", { ascending: false }),
         supabase.from("expense_categories").select("*").eq("is_active", true).order("name"),
         supabase.from("payment_methods").select("*").eq("is_active", true).neq("kind", "credit_account").order("sort_order"),
       ]);
@@ -63,8 +83,9 @@ function DespesasPage() {
   }, [filtered]);
   const filteredTotal = filtered.reduce((sum: number, row: any) => sum + Number(row.amount ?? 0), 0);
 
-  const paidTotal = expenses.filter((e: any) => e.status === "paid").reduce((a: number, e: any) => a + Number(e.amount), 0);
-  const pendingTotal = expenses.filter((e: any) => e.status === "pending").reduce((a: number, e: any) => a + Number(e.amount), 0);
+  const paidTotal = filtered.filter((e: any) => e.status === "paid").reduce((a: number, e: any) => a + Number(e.amount), 0);
+  const pendingTotal = filtered.filter((e: any) => e.status === "pending").reduce((a: number, e: any) => a + Number(e.amount), 0);
+  const cardsUnavailable = !rangeValid || isLoading || isError;
 
   const save = useMutation({
     mutationFn: async () => {
@@ -136,7 +157,7 @@ function DespesasPage() {
   return (
     <AppLayout managerOnly title="Despesas" subtitle="Compras, contas e demais saídas da loja" actions={isManager ? <Button size="sm" onClick={() => setShowForm((v) => !v)}><Plus className="mr-2 h-4 w-4" /> Nova despesa</Button> : undefined}>
       <div className="space-y-6">
-        <div className="grid gap-4 sm:grid-cols-3"><StatCard label="Despesas pagas" value={brl(paidTotal)} tone="negative" /><StatCard label="Despesas pendentes" value={brl(pendingTotal)} tone="gold" /><StatCard label="Lançamentos" value={String(expenses.length)} /></div>
+        <div className="grid gap-4 sm:grid-cols-3"><StatCard label="Despesas pagas" value={cardsUnavailable ? "—" : brl(paidTotal)} tone="negative" /><StatCard label="Despesas pendentes" value={cardsUnavailable ? "—" : brl(pendingTotal)} tone="gold" /><StatCard label="Lançamentos" value={cardsUnavailable ? "—" : String(filtered.length)} /></div>
 
         {showForm && <SectionCard title="Registrar despesa" description="Use esta tela para compras e despesas que não vieram de uma conta a pagar já cadastrada.">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -152,10 +173,42 @@ function DespesasPage() {
         </SectionCard>}
 
         <SectionCard title="Histórico de despesas" actions={<div className="w-72 max-w-full"><SearchBox value={search} onChange={setSearch} placeholder="Buscar despesa" /></div>}>
-          {isLoading ? (
-            <p className="text-sm text-muted-foreground">Carregando…</p>
+          <div className="mb-4 space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {([
+                ["today", "Hoje"], ["7d", "7 dias"], ["30d", "30 dias"],
+                ["month", "Mês"], ["year", "Ano"], ["all", "Tudo"],
+              ] as const).map(([value, label]) => (
+                <Button key={value} type="button" size="sm" variant={period === value ? "default" : "outline"} onClick={() => applyPeriod(value)}>{label}</Button>
+              ))}
+              <Button type="button" size="sm" variant={period === "custom" ? "default" : "outline"} onClick={() => {
+                if (period === "all") setRange(expensePeriodRange("month", todayISO(), month));
+                setPeriod("custom");
+              }}>Personalizado</Button>
+            </div>
+            {period === "month" && <div className="max-w-xs"><Field label="Mês / ano"><Input type="month" value={month} onChange={(event) => {
+              const value = event.target.value;
+              setMonth(value);
+              setRange(expensePeriodRange("month", todayISO(), value));
+            }} /></Field></div>}
+            {period === "year" && <div className="max-w-xs"><Field label="Ano"><Input type="number" min="1000" max="9999" value={year} onChange={(event) => {
+              const value = event.target.value;
+              setYear(value);
+              setRange(expensePeriodRange("year", todayISO(), month, value));
+            }} /></Field></div>}
+            {period !== "all" && <div className="grid max-w-xl gap-3 sm:grid-cols-2">
+              <Field label="De"><Input type="date" value={from} onChange={(event) => { setRange((current) => ({ ...current, from: event.target.value })); setPeriod("custom"); }} /></Field>
+              <Field label="Até"><Input type="date" value={to} onChange={(event) => { setRange((current) => ({ ...current, to: event.target.value })); setPeriod("custom"); }} /></Field>
+            </div>}
+          </div>
+          {!rangeValid ? (
+            <p role="alert" className="text-sm text-destructive">Informe datas válidas, com a data final igual ou posterior à inicial.</p>
+          ) : isLoading || isFetching ? (
+            <p role="status" className="text-sm text-muted-foreground">Carregando despesas…</p>
+          ) : isError ? (
+            <div role="alert" className="space-y-3"><p className="text-sm text-destructive">Não foi possível carregar as despesas.</p><Button variant="outline" size="sm" onClick={() => refetch()}>Tentar novamente</Button></div>
           ) : filtered.length === 0 ? (
-            <EmptyState title="Nenhuma despesa cadastrada" description="Quando você registrar compras, contas ou outras despesas elas aparecerão aqui." />
+            <EmptyState title="Nenhuma despesa encontrada" description="Não há despesas para o período e a busca selecionados." />
           ) : (
             <details className="group overflow-hidden rounded-[22px] border border-border bg-card">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 sm:px-5">
