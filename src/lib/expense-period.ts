@@ -10,7 +10,8 @@ export function expensePeriodRange(
   if (period === "all") return { from: "", to: "" };
   if (period === "month") {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return { from: "", to: "" };
-    const [y, m] = month.split("-").map(Number);
+    const y = Number(month.slice(0, 4));
+    const m = Number(month.slice(5, 7));
     const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
     return { from: `${month}-01`, to: month === today.slice(0, 7) ? today : `${month}-${lastDay}` };
   }
