@@ -90,13 +90,25 @@ function ContasReceberPage() {
 
   const remove = async (row: any) => {
     if (!isManager) { toast.error("Somente sócios ou administradores podem excluir contas manuais pendentes."); return; }
-    if (row.sale_id) { toast.error("Recebimentos gerados por uma venda fiada devem permanecer vinculados à venda."); return; }
-    if (row.status === "paid") { toast.error("Um recebimento já pago deve permanecer no histórico."); return; }
-    if (!window.confirm(`Excluir a conta de ${row.customer_name}?`)) return;
-    const { error } = await supabase.from("accounts_receivable").delete().eq("id", row.id);
+    if (row.status !== "pending") { toast.error("Somente contas pendentes podem ser canceladas."); return; }
+    const message = row.sale_id
+      ? `Cancelar a venda fiada de ${row.customer_name} (${brl(row.amount)})? A venda será marcada como cancelada, sairá dos totais e seus produtos voltarão ao estoque. Esta ação não pode ser desfeita.`
+      : `Excluir a conta manual de ${row.customer_name} (${brl(row.amount)})?`;
+    if (!window.confirm(message)) return;
+    const { error } = await supabase.rpc("cancel_pending_receivable", { _id: row.id });
     if (error) { toast.error(error.message); return; }
-    toast.success("Conta excluída.");
-    await qc.invalidateQueries({ queryKey: ["np-receivables"] });
+    toast.success(row.sale_id ? "Venda fiada cancelada. Histórico e estoque atualizados." : "Conta manual excluída.");
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ["np-receivables"] }),
+      qc.invalidateQueries({ queryKey: ["np-sales"] }),
+      qc.invalidateQueries({ queryKey: ["np-sales-workspace"] }),
+      qc.invalidateQueries({ queryKey: ["np-products"] }),
+      qc.invalidateQueries({ queryKey: ["np-inventory-movements"] }),
+      qc.invalidateQueries({ queryKey: ["np-revenues"] }),
+      qc.invalidateQueries({ queryKey: ["np-reports"] }),
+      qc.invalidateQueries({ queryKey: ["dashboard"] }),
+      qc.invalidateQueries({ queryKey: ["caixa"] }),
+    ]);
   };
 
   return (
