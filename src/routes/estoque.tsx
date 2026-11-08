@@ -52,7 +52,7 @@ function EstoquePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [product, setProduct] = useState(emptyProduct);
   const [movementProduct, setMovementProduct] = useState("");
-  const [movementType, setMovementType] = useState("loss");
+  const [movementType, setMovementType] = useState("in");
   const [movementQty, setMovementQty] = useState("");
   const [movementCost, setMovementCost] = useState("");
   const [movementReason, setMovementReason] = useState("");
@@ -158,6 +158,9 @@ function EstoquePage() {
     mutationFn: async () => {
       if (!movementProduct) throw new Error("Selecione um produto.");
       const qty = parseNumber(movementQty);
+      if (!Number.isFinite(qty) || qty < 0 || (movementType !== "adjustment" && qty === 0)) {
+        throw new Error(movementType === "adjustment" ? "Informe um saldo válido, igual ou maior que zero." : "Informe uma quantidade maior que zero.");
+      }
       if (movementType === "adjustment") {
         const { error } = await supabase.rpc("adjust_inventory", {
           _product_id: movementProduct,
@@ -172,7 +175,7 @@ function EstoquePage() {
         _movement_type: movementType,
         _quantity: qty,
         _unit_cost: parseNumber(movementCost) || null,
-        _reason: movementReason || null,
+        _reason: movementReason.trim() || (movementType === "in" ? "Reposição manual de estoque" : null),
       });
       if (error) throw error;
     },
@@ -251,19 +254,20 @@ function EstoquePage() {
           </SectionCard>
         )}
 
-        <SectionCard title="Ajustes de estoque" description="Use para produtos controlados por unidade. O Açaí + Gelato é controlado manualmente em potes pelo botão Editar do próprio cadastro.">
+        <div id="ajustes-estoque"><SectionCard title="Reposição e ajustes de estoque" description="Para compras recebidas, selecione Reposição (+) e informe a quantidade que chegou. Para definir o total disponível após uma contagem, use Ajustar saldo final. Todas as movimentações ficam no histórico. O Açaí + Gelato continua controlado em potes pelo botão Editar.">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <Field label="Produto"><NativeSelect value={movementProduct} onChange={setMovementProduct}><option value="">Selecione</option>{products.filter((p) => p.is_active && p.sale_mode !== "weight").map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</NativeSelect></Field>
-            <Field label="Movimento"><NativeSelect value={movementType} onChange={setMovementType}><option value="loss">Perda</option><option value="out">Saída manual</option><option value="adjustment">Ajustar saldo final</option></NativeSelect></Field>
+            <Field label="Movimento"><NativeSelect value={movementType} onChange={setMovementType}><option value="in">Reposição (+)</option><option value="loss">Perda</option><option value="out">Saída manual</option><option value="adjustment">Ajustar saldo final</option></NativeSelect></Field>
             <Field label={movementType === "adjustment" ? "Novo saldo" : "Quantidade"}><Input value={movementQty} onChange={(e) => setMovementQty(e.target.value)} placeholder="0" /></Field>
-            <Field label="Motivo"><Input value={movementReason} onChange={(e) => setMovementReason(e.target.value)} placeholder="Quebra, consumo interno, conferência..." /></Field>
+            <Field label="Motivo"><Input value={movementReason} onChange={(e) => setMovementReason(e.target.value)} placeholder={movementType === "in" ? "Ex.: Compra recebida" : "Quebra, consumo interno, conferência..."} /></Field>
           </div>
-          <Button className="mt-4" onClick={() => saveMovement.mutate()} disabled={saveMovement.isPending}><RefreshCw className="mr-2 h-4 w-4" /> Registrar ajuste</Button>
-        </SectionCard>
+          {movementProduct && <p className="mt-3 text-sm text-muted-foreground">Saldo atual: {num(products.find((p) => p.id === movementProduct)?.stock_qty ?? 0, 0)} {products.find((p) => p.id === movementProduct)?.unit ?? "un"}{movementType === "in" && movementQty && parseNumber(movementQty) > 0 ? ` · Após reposição: ${num(Number(products.find((p) => p.id === movementProduct)?.stock_qty ?? 0) + parseNumber(movementQty), 0)}` : ""}</p>}
+          <Button className="mt-4" onClick={() => saveMovement.mutate()} disabled={saveMovement.isPending}><RefreshCw className="mr-2 h-4 w-4" /> {movementType === "in" ? "Confirmar reposição" : "Registrar ajuste"}</Button>
+        </SectionCard></div>
 
         <SectionCard title="Produtos" actions={<div className="w-72 max-w-full"><SearchBox value={search} onChange={setSearch} placeholder="Buscar produto ou categoria" /></div>}>
           {isLoading ? <p className="text-sm text-muted-foreground">Carregando estoque…</p> : filtered.length === 0 ? <EmptyState title="Nenhum produto cadastrado" description="Cadastre bebidas, complementos e embalagens. A base Açaí + Gelato por peso é criada automaticamente pelo sistema." /> : (
-            <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Produto</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Saldo</th><th className="px-4 py-3">Venda</th><th className="px-4 py-3">Preço</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((p) => <tr key={p.id}><td className="px-4 py-3 font-medium">{p.name}<div className="mt-1">{p.sale_mode !== "weight" && Number(p.stock_qty) <= Number(p.low_stock_threshold) && <LowStockBadge />}</div></td><td className="px-4 py-3 text-muted-foreground">{p.category}</td><td className="px-4 py-3">{p.sale_mode === "weight" ? `${p.package_count ?? 0} potes · ${num(p.package_volume_l ?? 0, 1)} L cada` : `${num(p.stock_qty, 0)} ${p.unit}`}</td><td className="px-4 py-3 text-muted-foreground">{p.sale_mode === "weight" ? "Peso · estoque manual por potes" : p.sale_mode === "addon" ? (p.is_free_addon ? "Adicional grátis" : "Adicional") : "Unidade · baixa automática"}</td><td className="px-4 py-3">{brl(p.price)}</td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2"><Button size="sm" variant="outline" onClick={() => startEdit(p)}>Editar</Button><Button size="sm" variant="ghost" className="text-destructive" onClick={() => deactivate(p)}>Desativar</Button></div></td></tr>)}</tbody></table></TableShell>
+            <TableShell><table className="min-w-full text-sm"><thead className="bg-muted/50 text-left text-xs text-muted-foreground"><tr><th className="px-4 py-3">Produto</th><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Saldo</th><th className="px-4 py-3">Venda</th><th className="px-4 py-3">Preço</th><th className="px-4 py-3 text-right">Ações</th></tr></thead><tbody className="divide-y divide-border">{filtered.map((p) => <tr key={p.id}><td className="px-4 py-3 font-medium">{p.name}<div className="mt-1">{p.sale_mode !== "weight" && Number(p.stock_qty) <= Number(p.low_stock_threshold) && <LowStockBadge />}</div></td><td className="px-4 py-3 text-muted-foreground">{p.category}</td><td className="px-4 py-3">{p.sale_mode === "weight" ? `${p.package_count ?? 0} potes · ${num(p.package_volume_l ?? 0, 1)} L cada` : `${num(p.stock_qty, 0)} ${p.unit}`}</td><td className="px-4 py-3 text-muted-foreground">{p.sale_mode === "weight" ? "Peso · estoque manual por potes" : p.sale_mode === "addon" ? (p.is_free_addon ? "Adicional grátis" : "Adicional") : "Unidade · baixa automática"}</td><td className="px-4 py-3">{brl(p.price)}</td><td className="px-4 py-3 text-right"><div className="flex justify-end gap-2">{p.sale_mode !== "weight" && <Button size="sm" variant="outline" onClick={() => { setMovementProduct(p.id); setMovementType("in"); setMovementQty(""); setMovementCost(""); setMovementReason(""); document.getElementById("ajustes-estoque")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>Repor</Button>}<Button size="sm" variant="outline" onClick={() => startEdit(p)}>Editar</Button><Button size="sm" variant="ghost" className="text-destructive" onClick={() => deactivate(p)}>Desativar</Button></div></td></tr>)}</tbody></table></TableShell>
           )}
         </SectionCard>
 
