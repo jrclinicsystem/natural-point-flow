@@ -232,7 +232,6 @@ function VendasPage() {
       if (committedWeightGrams > 0 && saleWeightPricePerKg <= 0) throw new Error("O preço por kg precisa ser maior que zero.");
       if (discountMode === "percent" && discountValue > 100) throw new Error("O desconto percentual não pode ser maior que 100%.");
       if (discountAmount > subtotal) throw new Error("O desconto não pode ser maior que o subtotal da venda.");
-      if (!isManager && discountAmount > 0) throw new Error("Somente sócios ou administradores podem aplicar desconto.");
       if (!isManager && committedWeightGrams > 0 && Math.abs(saleWeightPricePerKg - configuredPricePerKg) > 0.001) {
         throw new Error("Somente sócios ou administradores podem alterar o preço por kg.");
       }
@@ -382,13 +381,12 @@ function VendasPage() {
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Desconto (opcional){isManager ? "" : " · restrito aos sócios"}
+                  Desconto (opcional)
                 </span>
                 <div className="flex rounded-xl border border-border bg-muted/40 p-0.5">
                   <button
                     type="button"
                     className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${discountMode === "amount" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
-                    disabled={!isManager}
                     onClick={() => { setDiscountMode("amount"); setDiscount(""); }}
                   >
                     R$
@@ -396,7 +394,6 @@ function VendasPage() {
                   <button
                     type="button"
                     className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${discountMode === "percent" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
-                    disabled={!isManager}
                     onClick={() => { setDiscountMode("percent"); setDiscount(""); }}
                   >
                     %
@@ -408,7 +405,6 @@ function VendasPage() {
                 value={discount}
                 onChange={(e) => setDiscount(e.target.value)}
                 placeholder={discountMode === "percent" ? "0%" : "0,00"}
-                disabled={!isManager}
               />
               {discountMode === "percent" && discountValue > 0 ? (
                 <p className="mt-1.5 text-[10px] text-muted-foreground">
